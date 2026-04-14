@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>PDF範囲選択（編集モード付き）</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+
+<style>
+body { margin: 0; font-family: sans-serif; }
+#toolbar { padding: 10px; background: #eee; }
+
+.page {
+  position: relative;
+  margin: 10px auto;
+}
+
+canvas {
+  display: block;
+  border: 1px solid #ccc;
+}
+
+.overlay {
+  position: absolute;
+  border: 2px dashed red;
+  box-sizing: border-box;
+}
+
+.selected {
+  border: 2px solid blue;
+}
+</style>
+</head>
+
+<body>
+
+<div id="toolbar">
+  <input type="file" id="fileInput" accept="application/pdf" />
+  <button id="exportBtn">すべて画像化</button>
+</div>
+
+<div id="viewer"></div>
+
+<script>
+const DPI_SCALE = 4;
+const MIN_DIST = 20;
+
+const viewer = document.getElementById('viewer');
+const fileInput = document.getElementById('fileInput');
+const exportBtn = document.getElementById('exportBtn');
+
+let pages = [];
+let overlays = [];
+
+// ===== 状態 =====
+let mode = "draw";
+let selectedOverlay = null;
+
+// ===== 描画用 =====
+let drawing = false;
+let start = null;
+let current = null;
+let activeWrapper = null;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ===== PDF =====
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+  viewer.innerHTML = '';
+  pages = [];
+  overlays = [];
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: DPI_SCALE });
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    canvas.style.width = (viewport.width / DPI_SCALE) + 'px';
+    canvas.style.height = (viewport.height / DPI_SCALE) + 'px';
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page';
+    wrapper.style.width = canvas.style.width;
+    wrapper.style.height = canvas.style.height;
+
+    wrapper.appendChild(canvas);
+    viewer.appendChild(wrapper);
+
+    pages.push({ canvas, wrapper });
+  }
+});
+
+// ===== interact =====
+function enableInteract(el) {
+  interact(el)
+    .draggable({
+      enabled: false,
+      listeners: {
+        move (event) {
+          const x = (parseFloat(el.style.left) || 0) + event.dx;
+          const y = (parseFloat(el.style.top) || 0) + event.dy;
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+        }
+      }
+    })
+    .resizable({
+      enabled: false,
+      edges: { left: true, right: true, top: true, bottom: true },
+      listeners: {
+        move (event) {
+          let x = parseFloat(el.style.left) || 0;
+          let y = parseFloat(el.style.top) || 0;
+
+          x += event.deltaRect.left;
+          y += event.deltaRect.top;
+
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+          el.style.width = event.rect.width + 'px';
+          el.style.height = event.rect.height + 'px';
+        }
+      }
+    });
+}
+
+// ===== overlay作成 =====
+function createOverlay(wrapper, x, y) {
+  const el = document.createElement('div');
+  el.className = 'overlay';
+
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.style.width = '0px';
+  el.style.height = '0px';
+
+  wrapper.appendChild(el);
+  overlays.push({ el, wrapper });
+
+  enableInteract(el);
+
+  return el;
+}
+
+// ===== モード切替 =====
+function setEditMode(target) {
+  if (selectedOverlay === target) {
+    // 同じ → 解除
+    selectedOverlay.el.classList.remove('selected');
+    interact(selectedOverlay.el).draggable({ enabled: false });
+    interact(selectedOverlay.el).resizable({ enabled: false });
+
+    selectedOverlay = null;
+    mode = "draw";
+    return;
+  }
+
+  // 別の選択
+  if (selectedOverlay) {
+    selectedOverlay.el.classList.remove('selected');
+    interact(selectedOverlay.el).draggable({ enabled: false });
+    interact(selectedOverlay.el).resizable({ enabled: false });
+  }
+
+  selectedOverlay = target;
+  mode = "edit";
+
+  target.el.classList.add('selected');
+  interact(target.el).draggable({ enabled: true });
+  interact(target.el).resizable({ enabled: true });
+}
+
+// ===== 右クリック選択 =====
+viewer.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+
+  for (const o of overlays) {
+    const rect = o.el.getBoundingClientRect();
+    if (
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom
+    ) {
+      setEditMode(o);
+      return;
+    }
+  }
+});
+
+// ===== 描画 =====
+viewer.addEventListener('mousedown', (e) => {
+  if (mode !== "draw") return;
+  if (e.button !== 0) return;
+
+  for (const p of pages) {
+    const r = p.wrapper.getBoundingClientRect();
+    if (
+      e.clientX >= r.left &&
+      e.clientX <= r.right &&
+      e.clientY >= r.top &&
+      e.clientY <= r.bottom
+    ) {
+      drawing = true;
+      activeWrapper = p.wrapper;
+
+      start = {
+        x: e.clientX - r.left,
+        y: e.clientY - r.top
+      };
+
+      current = createOverlay(activeWrapper, start.x, start.y);
+      break;
+    }
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!drawing || !current) return;
+
+  const r = activeWrapper.getBoundingClientRect();
+
+  const pos = {
+    x: e.clientX - r.left,
+    y: e.clientY - r.top
+  };
+
+  const dx = pos.x - start.x;
+  const dy = pos.y - start.y;
+
+  current.style.width = Math.abs(dx) + 'px';
+  current.style.height = Math.abs(dy) + 'px';
+  current.style.left = (dx < 0 ? pos.x : start.x) + 'px';
+  current.style.top = (dy < 0 ? pos.y : start.y) + 'px';
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (drawing && current) {
+    const r = activeWrapper.getBoundingClientRect();
+
+    const end = {
+      x: e.clientX - r.left,
+      y: e.clientY - r.top
+    };
+
+    const dx = Math.abs(end.x - start.x);
+    const dy = Math.abs(end.y - start.y);
+
+    if (dx + dy < MIN_DIST) {
+      current.remove();
+      overlays = overlays.filter(o => o.el !== current);
+    }
+  }
+
+  drawing = false;
+  current = null;
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Delete' && mode === 'edit' && selectedOverlay) {
+
+    // DOMから削除
+    selectedOverlay.el.remove();
+
+    // 配列から削除
+    overlays = overlays.filter(o => o !== selectedOverlay);
+
+    // 状態リセット
+    selectedOverlay = null;
+    mode = "draw";
+  }
+});
+
+// ===== export =====
+exportBtn.addEventListener('click', async () => {
+  const zip = new JSZip();
+
+  overlays.forEach((o, i) => {
+    const { el, wrapper } = o;
+    const page = pages.find(p => p.wrapper === wrapper);
+    const canvas = page.canvas;
+
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+
+    const x = el.offsetLeft;
+    const y = el.offsetTop;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+
+    const out = document.createElement('canvas');
+    out.width = w * scaleX;
+    out.height = h * scaleY;
+
+    out.getContext('2d').drawImage(
+      canvas,
+      x * scaleX,
+      y * scaleY,
+      w * scaleX,
+      h * scaleY,
+      0,
+      0,
+      out.width,
+      out.height
+    );
+
+    zip.file(`selection_${i}.png`,
+      out.toDataURL().split(',')[1],
+      { base64: true });
+  });
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+
+  // ===== ここが変更点 =====
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'selections.zip',
+        types: [{
+          description: 'ZIP file',
+          accept: { 'application/zip': ['.zip'] }
+        }]
+      });
+
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+
+    } catch (err) {
+      console.log('保存キャンセルまたはエラー:', err);
+    }
+  } else {
+    // フォールバック（非対応ブラウザ）
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'selections.zip';
+    a.click();
+  }
+});
+</script>
+
+</body>
+</html>
