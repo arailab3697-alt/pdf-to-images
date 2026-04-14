@@ -9,7 +9,6 @@
 - 右クリックで範囲を選択し、移動・リサイズ
 - `Delete`キーで選択中の範囲を削除
 - すべての選択範囲をPNGとしてZIP出力
-- PNGは保存前に `oxipng-wasm`（oxipng）で圧縮
 - ツールバーは画面上部にスティッキー表示
 
 ## 使い方
@@ -28,7 +27,6 @@
   - pdf.js
   - JSZip
   - interact.js
-  - oxipng-wasm（esm.sh経由）
 
 ## 注意事項
 
