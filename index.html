@@ -10,7 +10,18 @@
 
 <style>
 body { margin: 0; font-family: sans-serif; }
-#toolbar { padding: 10px; background: #eee; }
+#toolbar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  z-index: 1000;
+  padding: 10px;
+  background: #eee;
+  border-bottom: 1px solid #ddd;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
 
 .page {
   position: relative;
@@ -59,6 +70,7 @@ canvas {
 <script>
 const DPI_SCALE = 4;
 const MIN_DIST = 20;
+const OXIPNG_MAX_LEVEL = 6;
 
 const viewer = document.getElementById('viewer');
 const fileInput = document.getElementById('fileInput');
@@ -70,6 +82,7 @@ let overlays = [];
 // ===== 状態 =====
 let mode = "draw";
 let selectedOverlay = null;
+let oxipngEncode = null;
 
 // ===== 描画用 =====
 let drawing = false;
@@ -79,6 +92,38 @@ let activeWrapper = null;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+async function getOxipngEncode() {
+  if (oxipngEncode) return oxipngEncode;
+  const mod = await import('https://esm.sh/oxipng-wasm@0.1.0');
+  oxipngEncode = mod.encode;
+  return oxipngEncode;
+}
+
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('PNG Blobの生成に失敗しました'));
+        return;
+      }
+      resolve(blob);
+    }, 'image/png');
+  });
+}
+
+async function getCompressedPngBytes(canvas) {
+  const pngBlob = await canvasToPngBlob(canvas);
+  const input = new Uint8Array(await pngBlob.arrayBuffer());
+
+  try {
+    const encode = await getOxipngEncode();
+    return encode(input, OXIPNG_MAX_LEVEL);
+  } catch (err) {
+    console.warn('oxipng圧縮に失敗したため元PNGを保存します:', err);
+    return input;
+  }
+}
 
 // ===== PDF =====
 fileInput.addEventListener('change', async (e) => {
@@ -304,7 +349,7 @@ window.addEventListener('keydown', (e) => {
 exportBtn.addEventListener('click', async () => {
   const zip = new JSZip();
 
-  overlays.forEach((o, i) => {
+  for (const [i, o] of overlays.entries()) {
     const { el, wrapper } = o;
     const page = pages.find(p => p.wrapper === wrapper);
     const canvas = page.canvas;
@@ -333,10 +378,9 @@ exportBtn.addEventListener('click', async () => {
       out.height
     );
 
-    zip.file(`selection_${i}.png`,
-      out.toDataURL().split(',')[1],
-      { base64: true });
-  });
+    const compressedPng = await getCompressedPngBytes(out);
+    zip.file(`selection_${i}.png`, compressedPng);
+  }
 
   const blob = await zip.generateAsync({ type: 'blob' });
 
