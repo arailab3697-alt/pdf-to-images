@@ -7,9 +7,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
 
 <style>
-body { margin: 0; font-family: sans-serif; }
+body { margin: 0; font-family: sans-serif; background: #f8f8f8; }
 #toolbar {
   position: sticky;
   top: 0;
@@ -21,6 +22,10 @@ body { margin: 0; font-family: sans-serif; }
   background: #eee;
   border-bottom: 1px solid #ddd;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .page {
@@ -43,17 +48,97 @@ canvas {
   border: 2px solid blue;
 }
 
-#toolbar {
-  position: sticky;
-  top: 0;
-  left: 0;
-  width: 100%;
+#editorRoot {
+  display: none;
+  height: calc(100vh - 70px);
+}
+
+#selectionPanel {
+  width: 280px;
+  border-right: 1px solid #ddd;
+  background: #fff;
+  overflow-y: auto;
+  padding: 8px;
   box-sizing: border-box;
-  z-index: 1000;
-  padding: 10px;
-  background: #eee;
+}
+
+.selection-item {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  padding: 6px;
+  background: #fafafa;
+  cursor: grab;
+}
+
+.selection-item img {
+  width: 100%;
+  display: block;
+}
+
+#editorCanvasArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#editorControls {
+  padding: 8px;
+  background: #f1f1f1;
   border-bottom: 1px solid #ddd;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#dummyPdfViewport {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+#dummyPdfInner {
+  transform-origin: top left;
+}
+
+.dummy-page {
+  position: relative;
+  width: 595px;
+  height: 842px;
+  margin: 0 auto 16px;
+  border: 1px solid #bbb;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.dummy-page::before {
+  content: attr(data-page-label);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: #888;
+  font-size: 12px;
+}
+
+.page-drop-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.placed-overlay {
+  position: absolute;
+  border: 1px solid #0d6efd;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+.placed-overlay img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  user-select: none;
 }
 </style>
 </head>
@@ -63,28 +148,61 @@ canvas {
 <div id="toolbar">
   <input type="file" id="fileInput" accept="application/pdf" />
   <button id="exportBtn">すべて画像化</button>
+  <button id="toPdfModeBtn">pdf化</button>
+  <button id="backToSelectBtn" style="display:none;">範囲選択へ戻る</button>
+  <button id="exportPdfBtn" style="display:none;">書き出し</button>
 </div>
 
 <div id="viewer"></div>
+
+<div id="editorRoot">
+  <aside id="selectionPanel"></aside>
+  <section id="editorCanvasArea">
+    <div id="editorControls">
+      <button id="prevPageBtn">前ページへ</button>
+      <button id="nextPageBtn">次ページへ</button>
+      <label>拡大率 <input id="zoomRange" type="range" min="40" max="200" value="100" /></label>
+      <button id="addPageBtn">新しいページ</button>
+    </div>
+    <div id="dummyPdfViewport">
+      <div id="dummyPdfInner"></div>
+    </div>
+  </section>
+</div>
 
 <script>
 const DPI_SCALE = 4;
 const MIN_DIST = 20;
 const OXIPNG_MAX_LEVEL = 6;
+const A4_WIDTH_PT = 595;
+const A4_HEIGHT_PT = 842;
 
 const viewer = document.getElementById('viewer');
 const fileInput = document.getElementById('fileInput');
 const exportBtn = document.getElementById('exportBtn');
+const toPdfModeBtn = document.getElementById('toPdfModeBtn');
+const backToSelectBtn = document.getElementById('backToSelectBtn');
+const exportPdfBtn = document.getElementById('exportPdfBtn');
+
+const editorRoot = document.getElementById('editorRoot');
+const selectionPanel = document.getElementById('selectionPanel');
+const dummyPdfInner = document.getElementById('dummyPdfInner');
+const dummyPdfViewport = document.getElementById('dummyPdfViewport');
+const zoomRange = document.getElementById('zoomRange');
+const addPageBtn = document.getElementById('addPageBtn');
+const prevPageBtn = document.getElementById('prevPageBtn');
+const nextPageBtn = document.getElementById('nextPageBtn');
 
 let pages = [];
 let overlays = [];
+let extractedSelections = [];
+let editorPages = [];
+let placedOverlays = [];
 
-// ===== 状態 =====
-let mode = "draw";
+let mode = 'draw';
 let selectedOverlay = null;
 let oxipngEncode = null;
 
-// ===== 描画用 =====
 let drawing = false;
 let start = null;
 let current = null;
@@ -120,12 +238,16 @@ async function getCompressedPngBytes(canvas) {
     const encode = await getOxipngEncode();
     return encode(input, OXIPNG_MAX_LEVEL);
   } catch (err) {
-    console.warn('oxipng圧縮に失敗したため元PNGを保存します:', err);
+    console.warn('oxipng圧縮に失敗したため元PNGを利用します:', err);
     return input;
   }
 }
 
-// ===== PDF =====
+function bytesToDataUrl(bytes, mime = 'image/png') {
+  const blob = new Blob([bytes], { type: mime });
+  return URL.createObjectURL(blob);
+}
+
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -136,6 +258,11 @@ fileInput.addEventListener('change', async (e) => {
   viewer.innerHTML = '';
   pages = [];
   overlays = [];
+  extractedSelections = [];
+  editorPages = [];
+  placedOverlays = [];
+  selectionPanel.innerHTML = '';
+  dummyPdfInner.innerHTML = '';
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -162,9 +289,10 @@ fileInput.addEventListener('change', async (e) => {
 
     pages.push({ canvas, wrapper });
   }
+
+  setSelectModeUI();
 });
 
-// ===== interact =====
 function enableInteract(el) {
   interact(el)
     .draggable({
@@ -198,7 +326,37 @@ function enableInteract(el) {
     });
 }
 
-// ===== overlay作成 =====
+function enablePlacedInteract(el) {
+  interact(el)
+    .draggable({
+      listeners: {
+        move(event) {
+          const x = (parseFloat(el.style.left) || 0) + event.dx;
+          const y = (parseFloat(el.style.top) || 0) + event.dy;
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+        }
+      }
+    })
+    .resizable({
+      edges: { left: true, right: true, top: true, bottom: true },
+      listeners: {
+        move(event) {
+          let x = parseFloat(el.style.left) || 0;
+          let y = parseFloat(el.style.top) || 0;
+
+          x += event.deltaRect.left;
+          y += event.deltaRect.top;
+
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+          el.style.width = event.rect.width + 'px';
+          el.style.height = event.rect.height + 'px';
+        }
+      }
+    });
+}
+
 function createOverlay(wrapper, x, y) {
   const el = document.createElement('div');
   el.className = 'overlay';
@@ -216,20 +374,17 @@ function createOverlay(wrapper, x, y) {
   return el;
 }
 
-// ===== モード切替 =====
 function setEditMode(target) {
   if (selectedOverlay === target) {
-    // 同じ → 解除
     selectedOverlay.el.classList.remove('selected');
     interact(selectedOverlay.el).draggable({ enabled: false });
     interact(selectedOverlay.el).resizable({ enabled: false });
 
     selectedOverlay = null;
-    mode = "draw";
+    mode = 'draw';
     return;
   }
 
-  // 別の選択
   if (selectedOverlay) {
     selectedOverlay.el.classList.remove('selected');
     interact(selectedOverlay.el).draggable({ enabled: false });
@@ -237,14 +392,13 @@ function setEditMode(target) {
   }
 
   selectedOverlay = target;
-  mode = "edit";
+  mode = 'edit';
 
   target.el.classList.add('selected');
   interact(target.el).draggable({ enabled: true });
   interact(target.el).resizable({ enabled: true });
 }
 
-// ===== 右クリック選択 =====
 viewer.addEventListener('contextmenu', (e) => {
   e.preventDefault();
 
@@ -262,9 +416,8 @@ viewer.addEventListener('contextmenu', (e) => {
   }
 });
 
-// ===== 描画 =====
 viewer.addEventListener('mousedown', (e) => {
-  if (mode !== "draw") return;
+  if (mode !== 'draw') return;
   if (e.button !== 0) return;
 
   for (const p of pages) {
@@ -332,26 +485,20 @@ window.addEventListener('mouseup', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' && mode === 'edit' && selectedOverlay) {
-
-    // DOMから削除
     selectedOverlay.el.remove();
-
-    // 配列から削除
     overlays = overlays.filter(o => o !== selectedOverlay);
-
-    // 状態リセット
     selectedOverlay = null;
-    mode = "draw";
+    mode = 'draw';
   }
 });
 
-// ===== export =====
 exportBtn.addEventListener('click', async () => {
   const zip = new JSZip();
 
   for (const [i, o] of overlays.entries()) {
     const { el, wrapper } = o;
     const page = pages.find(p => p.wrapper === wrapper);
+    if (!page) continue;
     const canvas = page.canvas;
 
     const scaleX = canvas.width / canvas.clientWidth;
@@ -384,7 +531,6 @@ exportBtn.addEventListener('click', async () => {
 
   const blob = await zip.generateAsync({ type: 'blob' });
 
-  // ===== ここが変更点 =====
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -398,18 +544,283 @@ exportBtn.addEventListener('click', async () => {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-
     } catch (err) {
       console.log('保存キャンセルまたはエラー:', err);
     }
   } else {
-    // フォールバック（非対応ブラウザ）
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'selections.zip';
     a.click();
   }
 });
+
+function setSelectModeUI() {
+  viewer.style.display = 'block';
+  editorRoot.style.display = 'none';
+  toPdfModeBtn.style.display = 'inline-block';
+  backToSelectBtn.style.display = 'none';
+  exportPdfBtn.style.display = 'none';
+}
+
+function setPdfEditModeUI() {
+  viewer.style.display = 'none';
+  editorRoot.style.display = 'flex';
+  toPdfModeBtn.style.display = 'none';
+  backToSelectBtn.style.display = 'inline-block';
+  exportPdfBtn.style.display = 'inline-block';
+}
+
+async function buildSelectionsFromOverlays() {
+  extractedSelections = [];
+
+  for (const [idx, o] of overlays.entries()) {
+    const { el, wrapper } = o;
+    const page = pages.find(p => p.wrapper === wrapper);
+    if (!page) continue;
+
+    const canvas = page.canvas;
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+
+    const x = el.offsetLeft;
+    const y = el.offsetTop;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+
+    if (w <= 0 || h <= 0) continue;
+
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(w * scaleX));
+    out.height = Math.max(1, Math.round(h * scaleY));
+
+    out.getContext('2d').drawImage(
+      canvas,
+      x * scaleX,
+      y * scaleY,
+      w * scaleX,
+      h * scaleY,
+      0,
+      0,
+      out.width,
+      out.height
+    );
+
+    const compressedPng = await getCompressedPngBytes(out);
+    extractedSelections.push({
+      id: `sel_${idx}`,
+      bytes: compressedPng,
+      url: bytesToDataUrl(compressedPng),
+      width: out.width,
+      height: out.height
+    });
+  }
+}
+
+function renderSelectionPanel() {
+  selectionPanel.innerHTML = '';
+  if (extractedSelections.length === 0) {
+    selectionPanel.textContent = '選択範囲がありません。範囲選択モードで赤枠を作成してください。';
+    return;
+  }
+
+  extractedSelections.forEach((sel, idx) => {
+    const item = document.createElement('div');
+    item.className = 'selection-item';
+    item.draggable = true;
+    item.dataset.selectionId = sel.id;
+    item.innerHTML = `<div>画像 ${idx + 1}</div><img src="${sel.url}" alt="selection" />`;
+
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/selection-id', sel.id);
+    });
+
+    selectionPanel.appendChild(item);
+  });
+}
+
+function createDummyPage() {
+  const pageNo = editorPages.length + 1;
+  const pageEl = document.createElement('div');
+  pageEl.className = 'dummy-page';
+  pageEl.dataset.pageNo = String(pageNo);
+  pageEl.dataset.pageLabel = `ページ ${pageNo}`;
+
+  const layer = document.createElement('div');
+  layer.className = 'page-drop-layer';
+
+  layer.addEventListener('dragover', (e) => e.preventDefault());
+  layer.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const selectionId = e.dataTransfer.getData('text/selection-id');
+    const sel = extractedSelections.find(s => s.id === selectionId);
+    if (!sel) return;
+
+    const r = layer.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+
+    const placed = placeSelectionOnPage(sel, pageNo, x, y);
+    layer.appendChild(placed.el);
+  });
+
+  pageEl.appendChild(layer);
+  dummyPdfInner.appendChild(pageEl);
+  editorPages.push({ pageNo, el: pageEl, layer });
+}
+
+function placeSelectionOnPage(sel, pageNo, x, y) {
+  const el = document.createElement('div');
+  el.className = 'placed-overlay';
+
+  const initW = Math.max(60, Math.round(sel.width * 0.2));
+  const initH = Math.max(40, Math.round(sel.height * 0.2));
+
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.width = `${initW}px`;
+  el.style.height = `${initH}px`;
+  el.dataset.selectionId = sel.id;
+  el.dataset.pageNo = String(pageNo);
+
+  const img = document.createElement('img');
+  img.src = sel.url;
+  img.alt = 'overlay';
+  el.appendChild(img);
+
+  enablePlacedInteract(el);
+
+  const item = { el, pageNo, selectionId: sel.id };
+  placedOverlays.push(item);
+
+  el.addEventListener('dblclick', () => {
+    el.remove();
+    placedOverlays = placedOverlays.filter(o => o !== item);
+  });
+
+  return item;
+}
+
+function setupInitialEditorPages() {
+  dummyPdfInner.innerHTML = '';
+  editorPages = [];
+  placedOverlays = [];
+  createDummyPage();
+}
+
+function applyZoom() {
+  const zoom = Number(zoomRange.value) / 100;
+  dummyPdfInner.style.transform = `scale(${zoom})`;
+}
+
+function scrollToPage(delta) {
+  if (editorPages.length === 0) return;
+  const vpRect = dummyPdfViewport.getBoundingClientRect();
+  const current = editorPages.find((p) => {
+    const rect = p.el.getBoundingClientRect();
+    return rect.top >= vpRect.top - 20 && rect.top <= vpRect.bottom;
+  }) || editorPages[0];
+
+  let targetNo = current.pageNo + delta;
+  targetNo = Math.max(1, Math.min(editorPages.length, targetNo));
+  const target = editorPages[targetNo - 1];
+  if (target) {
+    target.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+zoomRange.addEventListener('input', applyZoom);
+addPageBtn.addEventListener('click', () => createDummyPage());
+prevPageBtn.addEventListener('click', () => scrollToPage(-1));
+nextPageBtn.addEventListener('click', () => scrollToPage(1));
+
+backToSelectBtn.addEventListener('click', () => {
+  setSelectModeUI();
+});
+
+toPdfModeBtn.addEventListener('click', async () => {
+  if (overlays.length === 0) {
+    alert('先に範囲選択を作成してください。');
+    return;
+  }
+
+  await buildSelectionsFromOverlays();
+  renderSelectionPanel();
+  setupInitialEditorPages();
+  applyZoom();
+  setPdfEditModeUI();
+});
+
+exportPdfBtn.addEventListener('click', async () => {
+  const pdfDoc = await PDFLib.PDFDocument.create();
+
+  for (let i = 0; i < editorPages.length; i++) {
+    pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+  }
+
+  for (const item of placedOverlays) {
+    if (!item.el.isConnected) continue;
+
+    const pageIndex = Math.max(0, Number(item.el.dataset.pageNo) - 1);
+    const page = pdfDoc.getPage(pageIndex);
+    const sel = extractedSelections.find(s => s.id === item.el.dataset.selectionId);
+    const pageInfo = editorPages.find(p => p.pageNo === Number(item.el.dataset.pageNo));
+    if (!sel || !pageInfo) continue;
+
+    const layerRect = pageInfo.layer.getBoundingClientRect();
+
+    const xPx = parseFloat(item.el.style.left) || 0;
+    const yPx = parseFloat(item.el.style.top) || 0;
+    const wPx = parseFloat(item.el.style.width) || 0;
+    const hPx = parseFloat(item.el.style.height) || 0;
+
+    const scaleX = A4_WIDTH_PT / layerRect.width;
+    const scaleY = A4_HEIGHT_PT / layerRect.height;
+
+    const xPt = xPx * scaleX;
+    const yPtFromTop = yPx * scaleY;
+    const wPt = wPx * scaleX;
+    const hPt = hPx * scaleY;
+    const yPt = A4_HEIGHT_PT - yPtFromTop - hPt;
+
+    const image = await pdfDoc.embedPng(sel.bytes);
+    page.drawImage(image, {
+      x: xPt,
+      y: yPt,
+      width: wPt,
+      height: hPt
+    });
+  }
+
+  const bytes = await pdfDoc.save();
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'edited.pdf',
+        types: [{
+          description: 'PDF file',
+          accept: { 'application/pdf': ['.pdf'] }
+        }]
+      });
+
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } catch (err) {
+      console.log('保存キャンセルまたはエラー:', err);
+    }
+    return;
+  }
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'edited.pdf';
+  a.click();
+});
+
+setSelectModeUI();
 </script>
 
 </body>
