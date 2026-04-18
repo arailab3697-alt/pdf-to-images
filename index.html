@@ -235,6 +235,13 @@ let activeWrapper = null;
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+function getCanvasScale(page) {
+  return {
+    scaleX: page.canvas.width / page.displayWidth,
+    scaleY: page.canvas.height / page.displayHeight
+  };
+}
+
 async function getOxipngEncode() {
   if (oxipngEncode) return oxipngEncode;
   const mod = await import('https://esm.sh/oxipng-wasm@0.1.0');
@@ -338,7 +345,12 @@ fileInput.addEventListener('change', async (e) => {
     wrapper.appendChild(canvas);
     viewer.appendChild(wrapper);
 
-    pages.push({ canvas, wrapper });
+    pages.push({
+      canvas,
+      wrapper,
+      displayWidth: viewport.width / DPI_SCALE,
+      displayHeight: viewport.height / DPI_SCALE
+    });
   }
 
   setSelectModeUI();
@@ -568,8 +580,7 @@ exportBtn.addEventListener('click', async () => {
     if (!page) continue;
     const canvas = page.canvas;
 
-    const scaleX = canvas.width / canvas.clientWidth;
-    const scaleY = canvas.height / canvas.clientHeight;
+    const { scaleX, scaleY } = getCanvasScale(page);
 
     const x = el.offsetLeft;
     const y = el.offsetTop;
@@ -577,8 +588,8 @@ exportBtn.addEventListener('click', async () => {
     const h = el.offsetHeight;
 
     const out = document.createElement('canvas');
-    out.width = w * scaleX;
-    out.height = h * scaleY;
+    out.width = Math.max(1, Math.round(w * scaleX));
+    out.height = Math.max(1, Math.round(h * scaleY));
 
     out.getContext('2d').drawImage(
       canvas,
@@ -649,8 +660,7 @@ async function buildSelectionsFromOverlays() {
     if (!page) continue;
 
     const canvas = page.canvas;
-    const scaleX = canvas.width / canvas.clientWidth;
-    const scaleY = canvas.height / canvas.clientHeight;
+    const { scaleX, scaleY } = getCanvasScale(page);
 
     const x = el.offsetLeft;
     const y = el.offsetTop;
