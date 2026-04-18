@@ -198,6 +198,8 @@ let overlays = [];
 let extractedSelections = [];
 let editorPages = [];
 let placedOverlays = [];
+let availableSelectionIds = new Set();
+let placedOverlaySeq = 0;
 
 let mode = 'draw';
 let selectedOverlay = null;
@@ -265,6 +267,8 @@ fileInput.addEventListener('change', async (e) => {
   extractedSelections = [];
   editorPages = [];
   placedOverlays = [];
+  availableSelectionIds = new Set();
+  placedOverlaySeq = 0;
   selectionPanel.innerHTML = '';
   dummyPdfInner.innerHTML = '';
 
@@ -626,27 +630,32 @@ async function buildSelectionsFromOverlays() {
     const compressedPng = await getCompressedPngBytes(out);
     extractedSelections.push({
       id: `sel_${idx}`,
+      name: `画像 ${idx + 1}`,
       bytes: compressedPng,
       url: bytesToDataUrl(compressedPng),
       width: out.width,
       height: out.height
     });
   }
+
+  availableSelectionIds = new Set(extractedSelections.map((s) => s.id));
 }
 
 function renderSelectionPanel() {
   selectionPanel.innerHTML = '';
-  if (extractedSelections.length === 0) {
-    selectionPanel.textContent = '選択範囲がありません。範囲選択モードで赤枠を作成してください。';
+  const availableSelections = extractedSelections.filter((sel) => availableSelectionIds.has(sel.id));
+
+  if (availableSelections.length === 0) {
+    selectionPanel.textContent = '未配置の画像はありません。右側の画像を左にドラッグすると戻せます。';
     return;
   }
 
-  extractedSelections.forEach((sel, idx) => {
+  availableSelections.forEach((sel) => {
     const item = document.createElement('div');
     item.className = 'selection-item';
     item.draggable = true;
     item.dataset.selectionId = sel.id;
-    item.innerHTML = `<div>画像 ${idx + 1}</div><img src="${sel.url}" alt="selection" />`;
+    item.innerHTML = `<div>${sel.name}</div><img src="${sel.url}" alt="selection" />`;
 
     item.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/selection-id', sel.id);
@@ -670,6 +679,7 @@ function createDummyPage() {
   layer.addEventListener('drop', (e) => {
     e.preventDefault();
     const selectionId = e.dataTransfer.getData('text/selection-id');
+    if (!selectionId || !availableSelectionIds.has(selectionId)) return;
     const sel = extractedSelections.find(s => s.id === selectionId);
     if (!sel) return;
 
@@ -679,6 +689,8 @@ function createDummyPage() {
 
     const placed = placeSelectionOnPage(sel, pageNo, x, y);
     layer.appendChild(placed.el);
+    availableSelectionIds.delete(selectionId);
+    renderSelectionPanel();
   });
 
   pageEl.appendChild(layer);
@@ -697,6 +709,9 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.style.top = `${y}px`;
   el.style.width = `${initW}px`;
   el.style.height = `${initH}px`;
+  el.draggable = true;
+  const placedId = `placed_${placedOverlaySeq++}`;
+  el.dataset.placedId = placedId;
   el.dataset.selectionId = sel.id;
   el.dataset.pageNo = String(pageNo);
 
@@ -707,12 +722,18 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
 
   enablePlacedInteract(el);
 
-  const item = { el, pageNo, selectionId: sel.id };
+  const item = { id: placedId, el, pageNo, selectionId: sel.id };
   placedOverlays.push(item);
+
+  el.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/placed-id', item.id);
+  });
 
   el.addEventListener('dblclick', () => {
     el.remove();
     placedOverlays = placedOverlays.filter(o => o !== item);
+    availableSelectionIds.add(item.selectionId);
+    renderSelectionPanel();
   });
 
   return item;
@@ -750,6 +771,20 @@ zoomRange.addEventListener('input', applyZoom);
 addPageBtn.addEventListener('click', () => createDummyPage());
 prevPageBtn.addEventListener('click', () => scrollToPage(-1));
 nextPageBtn.addEventListener('click', () => scrollToPage(1));
+selectionPanel.addEventListener('dragover', (e) => e.preventDefault());
+selectionPanel.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const placedId = e.dataTransfer.getData('text/placed-id');
+  if (!placedId) return;
+
+  const placed = placedOverlays.find((o) => o.id === placedId);
+  if (!placed) return;
+
+  placed.el.remove();
+  placedOverlays = placedOverlays.filter((o) => o.id !== placedId);
+  availableSelectionIds.add(placed.selectionId);
+  renderSelectionPanel();
+});
 
 backToSelectBtn.addEventListener('click', () => {
   setSelectModeUI();
