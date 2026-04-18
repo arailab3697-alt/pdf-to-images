@@ -63,12 +63,31 @@ canvas {
 }
 
 .selection-item {
+  position: relative;
   border: 1px solid #ccc;
   border-radius: 6px;
   margin-bottom: 10px;
   padding: 6px;
   background: #fafafa;
   cursor: grab;
+}
+
+.selection-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.duplicate-btn {
+  border: 1px solid #999;
+  background: #fff;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  line-height: 18px;
+  font-size: 16px;
+  cursor: pointer;
 }
 
 .selection-item img {
@@ -200,6 +219,7 @@ let editorPages = [];
 let placedOverlays = [];
 let availableSelectionIds = new Set();
 let placedOverlaySeq = 0;
+let duplicatedSelectionSeq = 0;
 
 let mode = 'draw';
 let selectedOverlay = null;
@@ -269,6 +289,7 @@ fileInput.addEventListener('change', async (e) => {
   placedOverlays = [];
   availableSelectionIds = new Set();
   placedOverlaySeq = 0;
+  duplicatedSelectionSeq = 0;
   selectionPanel.innerHTML = '';
   dummyPdfInner.innerHTML = '';
 
@@ -354,6 +375,11 @@ function enablePlacedInteract(el) {
     })
     .resizable({
       edges: { left: true, right: true, top: true, bottom: true },
+      modifiers: [
+        interact.modifiers.aspectRatio({
+          ratio: 'preserve'
+        })
+      ],
       listeners: {
         move(event) {
           let x = parseFloat(el.style.left) || 0;
@@ -630,11 +656,13 @@ async function buildSelectionsFromOverlays() {
     const compressedPng = await getCompressedPngBytes(out);
     extractedSelections.push({
       id: `sel_${idx}`,
-      name: `画像 ${idx + 1}`,
+      name: `画像${idx + 1}`,
+      baseName: `画像${idx + 1}`,
       bytes: compressedPng,
       url: bytesToDataUrl(compressedPng),
       width: out.width,
-      height: out.height
+      height: out.height,
+      variantNo: null
     });
   }
 
@@ -646,7 +674,7 @@ function renderSelectionPanel() {
   const availableSelections = extractedSelections.filter((sel) => availableSelectionIds.has(sel.id));
 
   if (availableSelections.length === 0) {
-    selectionPanel.textContent = '未配置の画像はありません。右側の画像を左にドラッグすると戻せます。';
+    selectionPanel.textContent = '未配置の画像はありません。右側の画像をダブルクリックすると戻せます。';
     return;
   }
 
@@ -655,14 +683,55 @@ function renderSelectionPanel() {
     item.className = 'selection-item';
     item.draggable = true;
     item.dataset.selectionId = sel.id;
-    item.innerHTML = `<div>${sel.name}</div><img src="${sel.url}" alt="selection" />`;
+    item.innerHTML = `
+      <div class="selection-item-head">
+        <div>${sel.name}</div>
+        <button class="duplicate-btn" type="button" title="複製">+</button>
+      </div>
+      <img src="${sel.url}" alt="selection" />
+    `;
 
     item.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/selection-id', sel.id);
     });
 
+    const duplicateBtn = item.querySelector('.duplicate-btn');
+    duplicateBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      duplicateSelection(sel.id);
+    });
+
     selectionPanel.appendChild(item);
   });
+}
+
+function duplicateSelection(selectionId) {
+  const source = extractedSelections.find((s) => s.id === selectionId);
+  if (!source || !availableSelectionIds.has(source.id)) return;
+
+  if (source.variantNo == null) {
+    source.variantNo = 1;
+    source.name = `${source.baseName}-1`;
+  }
+
+  const siblings = extractedSelections.filter((s) => s.baseName === source.baseName && s.variantNo != null);
+  const nextVariantNo = siblings.reduce((max, s) => Math.max(max, s.variantNo), 0) + 1;
+  const dupId = `dup_${duplicatedSelectionSeq++}`;
+  const duplicated = {
+    id: dupId,
+    name: `${source.baseName}-${nextVariantNo}`,
+    baseName: source.baseName,
+    bytes: source.bytes,
+    url: source.url,
+    width: source.width,
+    height: source.height,
+    variantNo: nextVariantNo
+  };
+
+  const sourceIndex = extractedSelections.findIndex((s) => s.id === source.id);
+  extractedSelections.splice(sourceIndex + 1, 0, duplicated);
+  availableSelectionIds.add(duplicated.id);
+  renderSelectionPanel();
 }
 
 function createDummyPage() {
@@ -709,7 +778,6 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.style.top = `${y}px`;
   el.style.width = `${initW}px`;
   el.style.height = `${initH}px`;
-  el.draggable = true;
   const placedId = `placed_${placedOverlaySeq++}`;
   el.dataset.placedId = placedId;
   el.dataset.selectionId = sel.id;
@@ -724,10 +792,6 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
 
   const item = { id: placedId, el, pageNo, selectionId: sel.id };
   placedOverlays.push(item);
-
-  el.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData('text/placed-id', item.id);
-  });
 
   el.addEventListener('dblclick', () => {
     el.remove();
@@ -771,20 +835,6 @@ zoomRange.addEventListener('input', applyZoom);
 addPageBtn.addEventListener('click', () => createDummyPage());
 prevPageBtn.addEventListener('click', () => scrollToPage(-1));
 nextPageBtn.addEventListener('click', () => scrollToPage(1));
-selectionPanel.addEventListener('dragover', (e) => e.preventDefault());
-selectionPanel.addEventListener('drop', (e) => {
-  e.preventDefault();
-  const placedId = e.dataTransfer.getData('text/placed-id');
-  if (!placedId) return;
-
-  const placed = placedOverlays.find((o) => o.id === placedId);
-  if (!placed) return;
-
-  placed.el.remove();
-  placedOverlays = placedOverlays.filter((o) => o.id !== placedId);
-  availableSelectionIds.add(placed.selectionId);
-  renderSelectionPanel();
-});
 
 backToSelectBtn.addEventListener('click', () => {
   setSelectModeUI();
