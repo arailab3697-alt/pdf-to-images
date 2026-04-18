@@ -159,6 +159,46 @@ canvas {
   pointer-events: none;
   user-select: none;
 }
+
+#busyOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+}
+
+#busyOverlay.active {
+  display: flex;
+}
+
+.busy-content {
+  background: #fff;
+  border-radius: 10px;
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #d6d6d6;
+  border-top-color: #0d6efd;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>
 </head>
 
@@ -189,6 +229,13 @@ canvas {
   </section>
 </div>
 
+<div id="busyOverlay" aria-live="polite" aria-busy="false">
+  <div class="busy-content">
+    <div class="spinner" aria-hidden="true"></div>
+    <div id="busyMessage">圧縮中です。しばらくお待ちください…</div>
+  </div>
+</div>
+
 <script>
 const DPI_SCALE = 4;
 const MIN_DIST = 20;
@@ -212,6 +259,8 @@ const zoomRange = document.getElementById('zoomRange');
 const addPageBtn = document.getElementById('addPageBtn');
 const prevPageBtn = document.getElementById('prevPageBtn');
 const nextPageBtn = document.getElementById('nextPageBtn');
+const busyOverlay = document.getElementById('busyOverlay');
+const busyMessage = document.getElementById('busyMessage');
 
 let pages = [];
 let overlays = [];
@@ -231,6 +280,7 @@ let drawing = false;
 let start = null;
 let current = null;
 let activeWrapper = null;
+let busyCount = 0;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -297,6 +347,41 @@ async function getCompressedPngBytes(canvas) {
 function bytesToDataUrl(bytes, mime = 'image/png') {
   const blob = new Blob([bytes], { type: mime });
   return URL.createObjectURL(blob);
+}
+
+function setControlsDisabled(disabled) {
+  const controls = [
+    fileInput,
+    exportBtn,
+    toPdfModeBtn,
+    backToSelectBtn,
+    exportPdfBtn,
+    zoomRange,
+    addPageBtn,
+    prevPageBtn,
+    nextPageBtn
+  ];
+  controls.forEach((el) => {
+    if (el) el.disabled = disabled;
+  });
+}
+
+function showBusy(message = '圧縮中です。しばらくお待ちください…') {
+  busyCount += 1;
+  busyMessage.textContent = message;
+  busyOverlay.classList.add('active');
+  busyOverlay.setAttribute('aria-busy', 'true');
+  document.body.style.overflow = 'hidden';
+  setControlsDisabled(true);
+}
+
+function hideBusy() {
+  busyCount = Math.max(0, busyCount - 1);
+  if (busyCount > 0) return;
+  busyOverlay.classList.remove('active');
+  busyOverlay.setAttribute('aria-busy', 'false');
+  document.body.style.overflow = '';
+  setControlsDisabled(false);
 }
 
 fileInput.addEventListener('change', async (e) => {
@@ -572,64 +657,69 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  const zip = new JSZip();
+  showBusy('画像を圧縮して書き出し中です。完了までお待ちください…');
+  try {
+    const zip = new JSZip();
 
-  for (const [i, o] of overlays.entries()) {
-    const { el, wrapper } = o;
-    const page = pages.find(p => p.wrapper === wrapper);
-    if (!page) continue;
-    const canvas = page.canvas;
+    for (const [i, o] of overlays.entries()) {
+      const { el, wrapper } = o;
+      const page = pages.find(p => p.wrapper === wrapper);
+      if (!page) continue;
+      const canvas = page.canvas;
 
-    const { scaleX, scaleY } = getCanvasScale(page);
+      const { scaleX, scaleY } = getCanvasScale(page);
 
-    const x = el.offsetLeft;
-    const y = el.offsetTop;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
+      const x = el.offsetLeft;
+      const y = el.offsetTop;
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
 
-    const out = document.createElement('canvas');
-    out.width = Math.max(1, Math.round(w * scaleX));
-    out.height = Math.max(1, Math.round(h * scaleY));
+      const out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(w * scaleX));
+      out.height = Math.max(1, Math.round(h * scaleY));
 
-    out.getContext('2d').drawImage(
-      canvas,
-      x * scaleX,
-      y * scaleY,
-      w * scaleX,
-      h * scaleY,
-      0,
-      0,
-      out.width,
-      out.height
-    );
+      out.getContext('2d').drawImage(
+        canvas,
+        x * scaleX,
+        y * scaleY,
+        w * scaleX,
+        h * scaleY,
+        0,
+        0,
+        out.width,
+        out.height
+      );
 
-    const compressedPng = await getCompressedPngBytes(out);
-    zip.file(`selection_${i}.png`, compressedPng);
-  }
-
-  const blob = await zip.generateAsync({ type: 'blob' });
-
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: 'selections.zip',
-        types: [{
-          description: 'ZIP file',
-          accept: { 'application/zip': ['.zip'] }
-        }]
-      });
-
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    } catch (err) {
-      console.log('保存キャンセルまたはエラー:', err);
+      const compressedPng = await getCompressedPngBytes(out);
+      zip.file(`selection_${i}.png`, compressedPng);
     }
-  } else {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'selections.zip';
-    a.click();
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'selections.zip',
+          types: [{
+            description: 'ZIP file',
+            accept: { 'application/zip': ['.zip'] }
+          }]
+        });
+
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (err) {
+        console.log('保存キャンセルまたはエラー:', err);
+      }
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'selections.zip';
+      a.click();
+    }
+  } finally {
+    hideBusy();
   }
 });
 
@@ -878,11 +968,16 @@ toPdfModeBtn.addEventListener('click', async () => {
     return;
   }
 
-  await buildSelectionsFromOverlays();
-  renderSelectionPanel();
-  setupInitialEditorPages();
-  applyZoom();
-  setPdfEditModeUI();
+  showBusy('画像を圧縮してPDF編集画面へ移行中です。しばらくお待ちください…');
+  try {
+    await buildSelectionsFromOverlays();
+    renderSelectionPanel();
+    setupInitialEditorPages();
+    applyZoom();
+    setPdfEditModeUI();
+  } finally {
+    hideBusy();
+  }
 });
 
 exportPdfBtn.addEventListener('click', async () => {
