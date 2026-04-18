@@ -252,6 +252,10 @@ fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
+  if (pages.length > 0) {
+    setSelectModeUI();
+  }
+
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
@@ -291,6 +295,12 @@ fileInput.addEventListener('change', async (e) => {
   }
 
   setSelectModeUI();
+});
+
+fileInput.addEventListener('click', () => {
+  if (pages.length > 0) {
+    alert('すでにファイルが選択されています。新しいファイルを選ぶと最初のモード（範囲選択）に戻ります。');
+  }
 });
 
 function enableInteract(el) {
@@ -493,6 +503,11 @@ window.addEventListener('keydown', (e) => {
 });
 
 exportBtn.addEventListener('click', async () => {
+  if (overlays.length === 0) {
+    alert('画像化する範囲が選択されていません。先に赤枠で範囲を選択してください。');
+    return;
+  }
+
   const zip = new JSZip();
 
   for (const [i, o] of overlays.entries()) {
@@ -558,6 +573,7 @@ exportBtn.addEventListener('click', async () => {
 function setSelectModeUI() {
   viewer.style.display = 'block';
   editorRoot.style.display = 'none';
+  exportBtn.style.display = 'inline-block';
   toPdfModeBtn.style.display = 'inline-block';
   backToSelectBtn.style.display = 'none';
   exportPdfBtn.style.display = 'none';
@@ -566,6 +582,7 @@ function setSelectModeUI() {
 function setPdfEditModeUI() {
   viewer.style.display = 'none';
   editorRoot.style.display = 'flex';
+  exportBtn.style.display = 'none';
   toPdfModeBtn.style.display = 'none';
   backToSelectBtn.style.display = 'inline-block';
   exportPdfBtn.style.display = 'inline-block';
