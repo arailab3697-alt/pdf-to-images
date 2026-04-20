@@ -270,7 +270,7 @@ let placedOverlays = [];
 let availableSelectionIds = new Set();
 let placedOverlaySeq = 0;
 let duplicatedSelectionSeq = 0;
-let placedOverlayZSeq = 0;
+let selectionClickSeq = 0;
 
 let mode = 'draw';
 let selectedOverlay = null;
@@ -405,7 +405,7 @@ fileInput.addEventListener('change', async (e) => {
   availableSelectionIds = new Set();
   placedOverlaySeq = 0;
   duplicatedSelectionSeq = 0;
-  placedOverlayZSeq = 0;
+  selectionClickSeq = 0;
   selectionPanel.innerHTML = '';
   dummyPdfInner.innerHTML = '';
 
@@ -795,7 +795,14 @@ async function buildSelectionsFromOverlays() {
 
 function renderSelectionPanel() {
   selectionPanel.innerHTML = '';
-  const availableSelections = extractedSelections.filter((sel) => availableSelectionIds.has(sel.id));
+  const availableSelections = extractedSelections
+    .filter((sel) => availableSelectionIds.has(sel.id))
+    .sort((a, b) => {
+      const aSeq = Number(a.lastClickedSeq || 0);
+      const bSeq = Number(b.lastClickedSeq || 0);
+      if (aSeq !== bSeq) return bSeq - aSeq;
+      return extractedSelections.indexOf(a) - extractedSelections.indexOf(b);
+    });
 
   if (availableSelections.length === 0) {
     selectionPanel.textContent = '未配置の画像はありません。右側の画像をダブルクリックすると戻せます。';
@@ -816,7 +823,14 @@ function renderSelectionPanel() {
     `;
 
     item.addEventListener('dragstart', (e) => {
+      sel.lastClickedSeq = ++selectionClickSeq;
       e.dataTransfer.setData('text/selection-id', sel.id);
+      renderSelectionPanel();
+    });
+
+    item.addEventListener('click', () => {
+      sel.lastClickedSeq = ++selectionClickSeq;
+      renderSelectionPanel();
     });
 
     const duplicateBtn = item.querySelector('.duplicate-btn');
@@ -849,7 +863,8 @@ function duplicateSelection(selectionId) {
     url: source.url,
     width: source.width,
     height: source.height,
-    variantNo: nextVariantNo
+    variantNo: nextVariantNo,
+    lastClickedSeq: ++selectionClickSeq
   };
 
   const sourceIndex = extractedSelections.findIndex((s) => s.id === source.id);
@@ -925,6 +940,10 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.addEventListener('dblclick', () => {
     el.remove();
     placedOverlays = placedOverlays.filter(o => o !== item);
+    const restoredSelection = extractedSelections.find((s) => s.id === item.selectionId);
+    if (restoredSelection) {
+      restoredSelection.lastClickedSeq = ++selectionClickSeq;
+    }
     availableSelectionIds.add(item.selectionId);
     renderSelectionPanel();
   });
