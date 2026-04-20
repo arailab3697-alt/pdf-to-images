@@ -269,6 +269,7 @@ let editorPages = [];
 let placedOverlays = [];
 let availableSelectionIds = new Set();
 let placedOverlaySeq = 0;
+let placedOverlayZSeq = 0;
 let duplicatedSelectionSeq = 0;
 
 let mode = 'draw';
@@ -403,6 +404,7 @@ fileInput.addEventListener('change', async (e) => {
   placedOverlays = [];
   availableSelectionIds = new Set();
   placedOverlaySeq = 0;
+  placedOverlayZSeq = 0;
   duplicatedSelectionSeq = 0;
   selectionPanel.innerHTML = '';
   dummyPdfInner.innerHTML = '';
@@ -901,9 +903,12 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.style.width = `${initW}px`;
   el.style.height = `${initH}px`;
   const placedId = `placed_${placedOverlaySeq++}`;
+  const zIndex = ++placedOverlayZSeq;
   el.dataset.placedId = placedId;
   el.dataset.selectionId = sel.id;
   el.dataset.pageNo = String(pageNo);
+  el.dataset.zIndex = String(zIndex);
+  el.style.zIndex = String(zIndex);
 
   const img = document.createElement('img');
   img.src = sel.url;
@@ -914,6 +919,14 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
 
   const item = { id: placedId, el, pageNo, selectionId: sel.id };
   placedOverlays.push(item);
+
+  const bringToFront = () => {
+    const nextZ = ++placedOverlayZSeq;
+    el.dataset.zIndex = String(nextZ);
+    el.style.zIndex = String(nextZ);
+  };
+
+  el.addEventListener('pointerdown', bringToFront);
 
   el.addEventListener('dblclick', () => {
     el.remove();
@@ -987,7 +1000,13 @@ exportPdfBtn.addEventListener('click', async () => {
     pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
   }
 
-  for (const item of placedOverlays) {
+  const drawOrder = [...placedOverlays].sort((a, b) => {
+    const az = Number(a.el.dataset.zIndex) || 0;
+    const bz = Number(b.el.dataset.zIndex) || 0;
+    return az - bz;
+  });
+
+  for (const item of drawOrder) {
     if (!item.el.isConnected) continue;
 
     const pageIndex = Math.max(0, Number(item.el.dataset.pageNo) - 1);
