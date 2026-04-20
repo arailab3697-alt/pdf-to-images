@@ -921,6 +921,7 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.dataset.placedId = placedId;
   el.dataset.selectionId = sel.id;
   el.dataset.pageNo = String(pageNo);
+  el.style.zIndex = String(++placedOverlayZSeq);
 
   const img = document.createElement('img');
   img.src = sel.url;
@@ -931,6 +932,10 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
 
   const item = { id: placedId, el, pageNo, selectionId: sel.id };
   placedOverlays.push(item);
+
+  el.addEventListener('mousedown', () => {
+    el.style.zIndex = String(++placedOverlayZSeq);
+  });
 
   el.addEventListener('dblclick', () => {
     el.remove();
@@ -950,6 +955,7 @@ function setupInitialEditorPages() {
   dummyPdfInner.innerHTML = '';
   editorPages = [];
   placedOverlays = [];
+  placedOverlayZSeq = 0;
   createDummyPage();
 }
 
@@ -1008,7 +1014,19 @@ exportPdfBtn.addEventListener('click', async () => {
     pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
   }
 
-  for (const item of placedOverlays) {
+  const overlaysForExport = placedOverlays
+    .filter((item) => item.el.isConnected)
+    .sort((a, b) => {
+      const pageA = Number(a.el.dataset.pageNo) || 0;
+      const pageB = Number(b.el.dataset.pageNo) || 0;
+      if (pageA !== pageB) return pageA - pageB;
+
+      const zA = Number(a.el.style.zIndex || 0);
+      const zB = Number(b.el.style.zIndex || 0);
+      return zA - zB;
+    });
+
+  for (const item of overlaysForExport) {
     if (!item.el.isConnected) continue;
 
     const pageIndex = Math.max(0, Number(item.el.dataset.pageNo) - 1);
