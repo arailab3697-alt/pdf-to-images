@@ -270,6 +270,7 @@ let placedOverlays = [];
 let availableSelectionIds = new Set();
 let placedOverlaySeq = 0;
 let duplicatedSelectionSeq = 0;
+let placedOverlayZSeq = 0;
 
 let mode = 'draw';
 let selectedOverlay = null;
@@ -404,6 +405,7 @@ fileInput.addEventListener('change', async (e) => {
   availableSelectionIds = new Set();
   placedOverlaySeq = 0;
   duplicatedSelectionSeq = 0;
+  placedOverlayZSeq = 0;
   selectionPanel.innerHTML = '';
   dummyPdfInner.innerHTML = '';
 
@@ -904,6 +906,7 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
   el.dataset.placedId = placedId;
   el.dataset.selectionId = sel.id;
   el.dataset.pageNo = String(pageNo);
+  el.style.zIndex = String(++placedOverlayZSeq);
 
   const img = document.createElement('img');
   img.src = sel.url;
@@ -914,6 +917,10 @@ function placeSelectionOnPage(sel, pageNo, x, y) {
 
   const item = { id: placedId, el, pageNo, selectionId: sel.id };
   placedOverlays.push(item);
+
+  el.addEventListener('mousedown', () => {
+    el.style.zIndex = String(++placedOverlayZSeq);
+  });
 
   el.addEventListener('dblclick', () => {
     el.remove();
@@ -929,6 +936,7 @@ function setupInitialEditorPages() {
   dummyPdfInner.innerHTML = '';
   editorPages = [];
   placedOverlays = [];
+  placedOverlayZSeq = 0;
   createDummyPage();
 }
 
