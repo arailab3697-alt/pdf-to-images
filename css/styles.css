@@ -1,0 +1,189 @@
+body { margin: 0; font-family: sans-serif; background: #f8f8f8; }
+#toolbar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  z-index: 1000;
+  padding: 10px;
+  background: #eee;
+  border-bottom: 1px solid #ddd;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.page {
+  position: relative;
+  margin: 10px auto;
+}
+
+canvas {
+  display: block;
+  border: 1px solid #ccc;
+}
+
+.overlay {
+  position: absolute;
+  border: 2px dashed red;
+  box-sizing: border-box;
+}
+
+.selected {
+  border: 2px solid blue;
+}
+
+#editorRoot {
+  display: none;
+  height: calc(100vh - 70px);
+}
+
+#selectionPanel {
+  width: 280px;
+  border-right: 1px solid #ddd;
+  background: #fff;
+  overflow-y: auto;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.selection-item {
+  position: relative;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  padding: 6px;
+  background: #fafafa;
+  cursor: grab;
+}
+
+.selection-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.duplicate-btn {
+  border: 1px solid #999;
+  background: #fff;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  line-height: 18px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.selection-item img {
+  width: 100%;
+  display: block;
+}
+
+#editorCanvasArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#editorControls {
+  padding: 8px;
+  background: #f1f1f1;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#dummyPdfViewport {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+#dummyPdfInner {
+  transform-origin: top left;
+}
+
+.dummy-page {
+  position: relative;
+  width: 595px;
+  height: 842px;
+  margin: 0 auto 16px;
+  border: 1px solid #bbb;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.dummy-page::before {
+  content: attr(data-page-label);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: #888;
+  font-size: 12px;
+}
+
+.page-drop-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.placed-overlay {
+  position: absolute;
+  border: 1px solid #0d6efd;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+.placed-overlay img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+#busyOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+}
+
+#busyOverlay.active {
+  display: flex;
+}
+
+.busy-content {
+  background: #fff;
+  border-radius: 10px;
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #d6d6d6;
+  border-top-color: #0d6efd;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
