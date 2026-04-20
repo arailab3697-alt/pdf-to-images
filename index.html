@@ -886,7 +886,7 @@ function createDummyPage() {
   layer.addEventListener('dragover', (e) => e.preventDefault());
   layer.addEventListener('drop', (e) => {
     e.preventDefault();
-    const selectionId = e.dataTransfer.getData('text/selection-id');
+    const selectionId = e.dataTransfer.getData('text/selection-id') || e.dataTransfer.getData('text/plain');
     if (!selectionId || !availableSelectionIds.has(selectionId)) return;
     const sel = extractedSelections.find(s => s.id === selectionId);
     if (!sel) return;
