@@ -9,7 +9,7 @@
 - 右クリックで範囲を選択し、移動・リサイズ
 - `Delete`キーで選択中の範囲を削除
 - すべての選択範囲をPNGとしてZIP出力
-- PNG出力時にWASM版pngquant（16色）→ oxipng の順で圧縮
+- PNG出力時にWASM版pngquant（16色）→ oxipng の順で圧縮（`/oxipng-wasm/oxipng_wasm.js` を優先利用し、失敗時はesm.shへフォールバック）
 - ツールバーは画面上部にスティッキー表示
 
 ## 使い方
