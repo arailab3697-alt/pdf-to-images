@@ -9,7 +9,7 @@
 - 右クリックで範囲を選択し、移動・リサイズ
 - `Delete`キーで選択中の範囲を削除
 - すべての選択範囲をPNGとしてZIP出力
-- PNG出力時にWASM版pngquant（16色）→ oxipng の順で圧縮
+- PNG出力時にWASM版pngquant（16色）→ oxipng の順で圧縮（`/oxipng-wasm/oxipng_wasm.js` を優先利用し、失敗時はesm.shへフォールバック）
 - ツールバーは画面上部にスティッキー表示
 
 ## 使い方
@@ -34,3 +34,10 @@
 - PDFのページは高解像度化のため内部的に拡大レンダリングされます。
 - `showSaveFilePicker` が利用できないブラウザでは、ダウンロードリンク方式で保存します。
 - このプロジェクトは単一HTMLファイル構成のため、ローカルで手軽に動かせます。
+
+## CI / デプロイ
+
+- `.github/workflows/deploy-oxipng-binary.yml` で `oxipng-wasm@0.1.0` のJS/WASMバイナリを取得し、
+  - Actions Artifact (`oxipng-wasm-binary`)
+  - GitHub Pages
+  にデプロイできます。

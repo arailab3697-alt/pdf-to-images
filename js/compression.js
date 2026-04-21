@@ -3,11 +3,26 @@ import { OXIPNG_MAX_LEVEL, PNGQUANT_MAX_COLORS } from './constants.js';
 let oxipngEncode = null;
 let pngQuantizer = null;
 
+const OXIPNG_MODULE_URL_CANDIDATES = [
+  '/oxipng-wasm/oxipng_wasm.js',
+  'https://esm.sh/oxipng-wasm@0.1.0'
+];
+
 async function getOxipngEncode() {
   if (oxipngEncode) return oxipngEncode;
-  const mod = await import('https://esm.sh/oxipng-wasm@0.1.0');
-  oxipngEncode = mod.encode;
-  return oxipngEncode;
+
+  let lastError = null;
+  for (const moduleUrl of OXIPNG_MODULE_URL_CANDIDATES) {
+    try {
+      const mod = await import(moduleUrl);
+      oxipngEncode = mod.encode;
+      return oxipngEncode;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error('oxipng moduleの読み込みに失敗しました');
 }
 
 async function getPngQuantizer() {
