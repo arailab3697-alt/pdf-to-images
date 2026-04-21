@@ -4,7 +4,7 @@ let oxipngEncode = null;
 let pngQuantizer = null;
 
 const OXIPNG_MODULE_URL_CANDIDATES = [
-  '/oxipng-wasm/oxipng_wasm.js',
+  './oxipng-wasm/oxipng_wasm.js',
   'https://esm.sh/oxipng-wasm@0.1.0'
 ];
 
