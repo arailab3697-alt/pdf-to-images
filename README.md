@@ -34,3 +34,10 @@
 - PDFのページは高解像度化のため内部的に拡大レンダリングされます。
 - `showSaveFilePicker` が利用できないブラウザでは、ダウンロードリンク方式で保存します。
 - このプロジェクトは単一HTMLファイル構成のため、ローカルで手軽に動かせます。
+
+## CI / デプロイ
+
+- `.github/workflows/deploy-oxipng-binary.yml` で `oxipng-wasm@0.1.0` のJS/WASMバイナリを取得し、
+  - Actions Artifact (`oxipng-wasm-binary`)
+  - GitHub Pages
+  にデプロイできます。
