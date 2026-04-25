@@ -12,17 +12,37 @@ async function getOxipngEncode() {
   if (oxipngEncode) return oxipngEncode;
 
   let lastError = null;
+
   for (const moduleUrl of OXIPNG_MODULE_URL_CANDIDATES) {
     try {
-      const mod = await import(moduleUrl);
-      oxipngEncode = mod.encode;
+      const response = await fetch(moduleUrl);
+
+      if (!response.ok) {
+        throw new Error(`fetch failed: ${response.status}`);
+      }
+
+      let instance;
+
+      if (WebAssembly.instantiateStreaming) {
+        ({ instance } = await WebAssembly.instantiateStreaming(response));
+      } else {
+        const buffer = await response.arrayBuffer();
+        ({ instance } = await WebAssembly.instantiate(buffer));
+      }
+
+      if (!instance.exports || !instance.exports.encode) {
+        throw new Error("encode export が見つかりません");
+      }
+
+      oxipngEncode = instance.exports.encode;
       return oxipngEncode;
+
     } catch (err) {
       lastError = err;
     }
   }
 
-  throw lastError ?? new Error('oxipng moduleの読み込みに失敗しました');
+  throw lastError ?? new Error("oxipng moduleの読み込みに失敗しました");
 }
 
 async function getPngQuantizer() {
