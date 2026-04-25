@@ -1,4 +1,4 @@
-name: Deploy oxipng-wasm binary
+ame: Deploy oxipng-wasm binary
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           echo "artifact dir"
           ls dist
           echo "oxipng-wasm dir"
-          ls dist/oxipng_wasm
+          ls dist/oxipng-wasm
 
       - name: Upload binary as build artifact
         uses: actions/upload-artifact@v4
