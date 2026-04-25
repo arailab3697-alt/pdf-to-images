@@ -1,4 +1,4 @@
-ame: Deploy oxipng-wasm binary
+name: Deploy oxipng-wasm binary
 
 on:
   workflow_dispatch:
