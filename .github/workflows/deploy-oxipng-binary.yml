@@ -40,6 +40,8 @@ jobs:
           cp package/LICENSE dist/oxipng-wasm/
           cp package/LICENSE-THIRD-PARTY dist/oxipng-wasm/
           cp -r web/ dist/
+          ls "DIST"
+          ls dist
 
       - name: Upload binary as build artifact
         uses: actions/upload-artifact@v4
