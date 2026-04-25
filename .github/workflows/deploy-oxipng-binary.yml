@@ -39,10 +39,6 @@ jobs:
           cp package/oxipng_wasm_bg.wasm dist/oxipng-wasm/
           cp package/LICENSE dist/oxipng-wasm/
           cp package/LICENSE-THIRD-PARTY dist/oxipng-wasm/
-          echo "artifact dir"
-          ls dist
-          echo "oxipng-wasm dir"
-          ls dist/oxipng-wasm
 
       - name: Upload binary as build artifact
         uses: actions/upload-artifact@v4
