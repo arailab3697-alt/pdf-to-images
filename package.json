@@ -1,0 +1,19 @@
+{
+  "name": "ct-maker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "@jsquash/oxipng": "^2.3.0",
+    "@wasm-codecs/oxipng": "^1.0.1",
+    "esbuild": "^0.28.0"
+  }
+}
