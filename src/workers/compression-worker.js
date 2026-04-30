@@ -34,8 +34,7 @@ self.onmessage = async (event) => {
 
   try {
     const output = await compressInWorker(payload);
-    const safeOutput = output.slice();
-    self.postMessage({ id, ok: true, output: safeOutput });
+    self.postMessage({ id, ok: true, output }, [output.buffer]);
   } catch (error) {
     self.postMessage({
       id,

@@ -4,15 +4,6 @@ let compressionWorker = null;
 let workerRequestSeq = 0;
 const workerRequests = new Map();
 
-function normalizeWorkerBytes(output) {
-  if (output instanceof Uint8Array) return output;
-  if (output instanceof ArrayBuffer) return new Uint8Array(output);
-  if (ArrayBuffer.isView(output)) {
-    return new Uint8Array(output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength));
-  }
-  throw new Error('Workerから不正な出力形式が返されました');
-}
-
 function getCompressionWorker() {
   if (compressionWorker) return compressionWorker;
 
@@ -24,7 +15,7 @@ function getCompressionWorker() {
     workerRequests.delete(id);
 
     if (ok) {
-      pending.resolve(normalizeWorkerBytes(output));
+      pending.resolve(new Uint8Array(output));
     } else {
       pending.reject(new Error(error));
     }
@@ -59,7 +50,7 @@ function postWorkerCompression(payload) {
     workerRequests.set(id, { resolve, reject });
   });
 
-  worker.postMessage({ id, payload }, [payload.rgbaBytes]);
+  worker.postMessage({ id, payload }, [payload.pngBytes, payload.rgbaBytes]);
   return request;
 }
 
@@ -69,7 +60,6 @@ export async function getCompressedPngBytes(canvas) {
     pngBlob.arrayBuffer(),
     Promise.resolve(canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height))
   ]);
-  const sourcePngBytes = new Uint8Array(pngBuffer);
 
   try {
     return await postWorkerCompression({
@@ -83,7 +73,7 @@ export async function getCompressedPngBytes(canvas) {
     });
   } catch (error) {
     console.warn('Worker圧縮に失敗 → 元PNGを使用', error);
-    return sourcePngBytes;
+    return new Uint8Array(pngBuffer);
   }
 }
 
