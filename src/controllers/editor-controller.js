@@ -5,20 +5,12 @@ import { saveBlob } from '../services/file-save.js';
 import { setSelectModeUI } from '../ui.js';
 
 export function registerEditorEvents() {
-  const onBackToSelectClick = () => {
+  dom.backToSelectBtn.addEventListener('click', () => {
     setSelectModeUI();
-  };
+  });
 
-  const onExportPdfClick = async () => {
+  dom.exportPdfBtn.addEventListener('click', async () => {
     const blob = await exportEditedPdf();
     await saveBlob(blob, FILE_NAMES.EDITED_PDF, MIME_TYPES.PDF, FILE_DESCRIPTIONS.PDF, UI_MESSAGES.saveCanceledOrError);
-  };
-
-  dom.backToSelectBtn.addEventListener('click', onBackToSelectClick);
-  dom.exportPdfBtn.addEventListener('click', onExportPdfClick);
-
-  return () => {
-    dom.backToSelectBtn.removeEventListener('click', onBackToSelectClick);
-    dom.exportPdfBtn.removeEventListener('click', onExportPdfClick);
-  };
+  });
 }

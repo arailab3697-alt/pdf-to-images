@@ -8,18 +8,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 function registerGlobalEvents() {
-  const disposers = [
-    registerSelectEvents(),
-    registerEditorEvents(),
-    setupSelectionEvents(),
-    setupEditorEvents()
-  ].filter(Boolean);
-
-  return () => {
-    disposers.forEach((dispose) => dispose());
-  };
+  registerSelectEvents();
+  registerEditorEvents();
+  setupSelectionEvents();
+  setupEditorEvents();
 }
 
-window.__disposeGlobalEvents?.();
-window.__disposeGlobalEvents = registerGlobalEvents();
+registerGlobalEvents();
 setSelectModeUI();

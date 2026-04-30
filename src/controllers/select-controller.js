@@ -9,20 +9,20 @@ import { notifyError } from '../services/error-handler.js';
 import { setPdfEditModeUI } from '../ui.js';
 
 export function registerSelectEvents() {
-  const onFileInputChange = async (e) => {
+  dom.fileInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       await loadPdfFile(files);
     }
-  };
+  });
 
-  const onFileInputClick = () => {
+  dom.fileInput.addEventListener('click', () => {
     if (state.pages.length > 0) {
       notifyError(UI_MESSAGES.fileAlreadySelected);
     }
-  };
+  });
 
-  const onExportClick = async () => {
+  dom.exportBtn.addEventListener('click', async () => {
     if (state.overlays.length === 0) {
       notifyError(UI_MESSAGES.noSelectionForExport);
       return;
@@ -38,9 +38,9 @@ export function registerSelectEvents() {
         UI_MESSAGES.saveCanceledOrError
       );
     });
-  };
+  });
 
-  const onToPdfModeClick = async () => {
+  dom.toPdfModeBtn.addEventListener('click', async () => {
     if (state.overlays.length === 0) {
       notifyError(UI_MESSAGES.noSelectionForPdfMode);
       return;
@@ -53,17 +53,5 @@ export function registerSelectEvents() {
       applyZoom();
       setPdfEditModeUI();
     });
-  };
-
-  dom.fileInput.addEventListener('change', onFileInputChange);
-  dom.fileInput.addEventListener('click', onFileInputClick);
-  dom.exportBtn.addEventListener('click', onExportClick);
-  dom.toPdfModeBtn.addEventListener('click', onToPdfModeClick);
-
-  return () => {
-    dom.fileInput.removeEventListener('change', onFileInputChange);
-    dom.fileInput.removeEventListener('click', onFileInputClick);
-    dom.exportBtn.removeEventListener('click', onExportClick);
-    dom.toPdfModeBtn.removeEventListener('click', onToPdfModeClick);
-  };
+  });
 }
