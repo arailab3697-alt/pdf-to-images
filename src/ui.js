@@ -38,6 +38,7 @@ export function hideBusy() {
 }
 
 export function setSelectModeUI() {
+  dom.selectionRoot.style.display = 'flex';
   dom.viewer.style.display = 'block';
   dom.editorRoot.style.display = 'none';
   dom.exportBtn.style.display = 'inline-block';
@@ -47,10 +48,11 @@ export function setSelectModeUI() {
 }
 
 export function setPdfEditModeUI() {
-  dom.viewer.style.display = 'none';
+  dom.selectionRoot.style.display = 'none';
   dom.editorRoot.style.display = 'flex';
   dom.exportBtn.style.display = 'none';
   dom.toPdfModeBtn.style.display = 'none';
   dom.backToSelectBtn.style.display = 'inline-block';
   dom.exportPdfBtn.style.display = 'inline-block';
 }
+

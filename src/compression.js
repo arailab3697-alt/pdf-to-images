@@ -1,4 +1,4 @@
-import { OXIPNG_MAX_LEVEL, PNGQUANT_MAX_COLORS } from './constants.js';
+import { OXIPNG_MAX_LEVEL, PNGQUANT_MAX_COLORS, PNGQUANT_SPEED } from './constants.js';
 import { optimise } from '@jsquash/oxipng';
 
 let pngQuantizer = null;
@@ -36,7 +36,8 @@ export async function getCompressedPngBytes(canvas) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
     const result = await quantizer.quantizeImageData(imageData, {
-      maxColors: PNGQUANT_MAX_COLORS
+      maxColors: PNGQUANT_MAX_COLORS,
+      speed: PNGQUANT_SPEED,
     });
 
     bytes = result.pngBytes;

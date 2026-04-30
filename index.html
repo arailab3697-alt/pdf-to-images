@@ -14,14 +14,19 @@
 <body>
 
 <div id="toolbar">
-  <input type="file" id="fileInput" accept="application/pdf" />
+  <input type="file" id="fileInput" accept="application/pdf" multiple />
   <button id="exportBtn">すべて画像化</button>
   <button id="toPdfModeBtn">pdf化</button>
   <button id="backToSelectBtn" style="display:none;">範囲選択へ戻る</button>
   <button id="exportPdfBtn" style="display:none;">書き出し</button>
 </div>
 
-<div id="viewer"></div>
+<div id="selectionRoot">
+  <aside id="pdfSidebar">
+    <div id="pdfList"></div>
+  </aside>
+  <div id="viewer"></div>
+</div>
 
 <div id="editorRoot">
   <aside id="selectionPanel"></aside>

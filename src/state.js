@@ -1,4 +1,6 @@
 export const state = {
+  files: [], // { name, numPages }
+  activeFileIndex: 0,
   pages: [],
   overlays: [],
   extractedSelections: [],
@@ -18,6 +20,8 @@ export const state = {
 };
 
 export function resetDocumentState() {
+  state.files = [];
+  state.activeFileIndex = 0;
   state.pages = [];
   state.overlays = [];
   state.extractedSelections = [];

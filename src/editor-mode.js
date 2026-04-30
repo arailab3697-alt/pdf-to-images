@@ -36,37 +36,63 @@ function enablePlacedInteract(el) {
 
 export function renderSelectionPanel() {
   dom.selectionPanel.innerHTML = '';
-  const availableSelections = state.extractedSelections.filter((selection) => state.availableSelectionIds.has(selection.id));
+
+  // 1. Render Tabs
+  const tabsContainer = document.createElement('div');
+  tabsContainer.className = 'selection-tabs';
+  state.files.forEach((file, index) => {
+    const tab = document.createElement('button');
+    tab.className = `selection-tab ${state.activeFileIndex === index ? 'active' : ''}`;
+    tab.textContent = file.name;
+    tab.title = file.name;
+    tab.addEventListener('click', () => {
+      state.activeFileIndex = index;
+      renderSelectionPanel();
+    });
+    tabsContainer.appendChild(tab);
+  });
+  dom.selectionPanel.appendChild(tabsContainer);
+
+  // 2. Render Selections for active file
+  const selectionsContainer = document.createElement('div');
+  selectionsContainer.className = 'selection-list';
+
+  const availableSelections = state.extractedSelections.filter(
+    (selection) => state.availableSelectionIds.has(selection.id) && selection.fileIndex === state.activeFileIndex
+  );
 
   if (availableSelections.length === 0) {
-    dom.selectionPanel.textContent = '未配置の画像はありません。右側の画像をダブルクリックすると戻せます。';
-    return;
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'selection-empty-msg';
+    emptyMsg.textContent = '未配置の画像はありません。';
+    selectionsContainer.appendChild(emptyMsg);
+  } else {
+    availableSelections.forEach((selection) => {
+      const item = document.createElement('div');
+      item.className = 'selection-item';
+      item.draggable = true;
+      item.dataset.selectionId = selection.id;
+      item.innerHTML = `
+        <div class="selection-item-head">
+          <div class="selection-item-name">${selection.name}</div>
+          <button class="duplicate-btn" type="button" title="複製">+</button>
+        </div>
+        <img src="${selection.url}" alt="selection" />
+      `;
+
+      item.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/selection-id', selection.id);
+      });
+
+      item.querySelector('.duplicate-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        duplicateSelection(selection.id);
+      });
+
+      selectionsContainer.appendChild(item);
+    });
   }
-
-  availableSelections.forEach((selection) => {
-    const item = document.createElement('div');
-    item.className = 'selection-item';
-    item.draggable = true;
-    item.dataset.selectionId = selection.id;
-    item.innerHTML = `
-      <div class="selection-item-head">
-        <div>${selection.name}</div>
-        <button class="duplicate-btn" type="button" title="複製">+</button>
-      </div>
-      <img src="${selection.url}" alt="selection" />
-    `;
-
-    item.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/selection-id', selection.id);
-    });
-
-    item.querySelector('.duplicate-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      duplicateSelection(selection.id);
-    });
-
-    dom.selectionPanel.appendChild(item);
-  });
+  dom.selectionPanel.appendChild(selectionsContainer);
 }
 
 function duplicateSelection(selectionId) {
@@ -88,7 +114,8 @@ function duplicateSelection(selectionId) {
     url: source.url,
     width: source.width,
     height: source.height,
-    variantNo: nextVariantNo
+    variantNo: nextVariantNo,
+    fileIndex: source.fileIndex
   };
 
   const sourceIndex = state.extractedSelections.findIndex((selection) => selection.id === source.id);

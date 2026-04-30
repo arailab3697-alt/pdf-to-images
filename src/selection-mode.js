@@ -82,50 +82,89 @@ function setEditMode(target) {
   interact(target.el).resizable({ enabled: true });
 }
 
-export async function loadPdfFile(file) {
-  if (!file) return;
+export async function loadPdfFile(files) {
+  if (!files || files.length === 0) return;
 
   if (state.pages.length > 0) {
     setSelectModeUI();
   }
 
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
   dom.viewer.innerHTML = '';
   dom.selectionPanel.innerHTML = '';
   dom.dummyPdfInner.innerHTML = '';
+  dom.pdfList.innerHTML = '';
   resetDocumentState();
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: DPI_SCALE });
+  for (let fIdx = 0; fIdx < files.length; fIdx++) {
+    const file = files[fIdx];
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = `${viewport.width / DPI_SCALE}px`;
-    canvas.style.height = `${viewport.height / DPI_SCALE}px`;
+    state.files.push({ name: file.name, numPages: pdf.numPages, startPageIndex: state.pages.length });
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'page';
-    wrapper.style.width = canvas.style.width;
-    wrapper.style.height = canvas.style.height;
-    wrapper.appendChild(canvas);
-    dom.viewer.appendChild(wrapper);
-
-    state.pages.push({
-      canvas,
-      wrapper,
-      displayWidth: viewport.width / DPI_SCALE,
-      displayHeight: viewport.height / DPI_SCALE
+    // Render sidebar item
+    const item = document.createElement('div');
+    item.className = 'pdf-list-item';
+    item.textContent = file.name;
+    item.addEventListener('click', () => {
+      const targetPage = state.pages.find(p => p.fileIndex === fIdx);
+      if (targetPage) targetPage.wrapper.scrollIntoView({ behavior: 'smooth' });
     });
+    dom.pdfList.appendChild(item);
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: DPI_SCALE });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = `${viewport.width / DPI_SCALE}px`;
+      canvas.style.height = `${viewport.height / DPI_SCALE}px`;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'page';
+      wrapper.style.width = canvas.style.width;
+      wrapper.style.height = canvas.style.height;
+      wrapper.appendChild(canvas);
+      dom.viewer.appendChild(wrapper);
+
+      state.pages.push({
+        canvas,
+        wrapper,
+        displayWidth: viewport.width / DPI_SCALE,
+        displayHeight: viewport.height / DPI_SCALE,
+        fileIndex: fIdx
+      });
+    }
   }
 
+  // Setup scroll listener to update active PDF
+  dom.viewer.addEventListener('scroll', updateActivePdf);
+
   setSelectModeUI();
+}
+
+function updateActivePdf() {
+  const rects = state.pages.map(p => p.wrapper.getBoundingClientRect());
+  const viewerRect = dom.viewer.getBoundingClientRect();
+  const midPoint = viewerRect.top + viewerRect.height / 2;
+
+  let activeIndex = 0;
+  for (let i = 0; i < rects.length; i++) {
+    if (rects[i].top <= midPoint && rects[i].bottom >= midPoint) {
+      activeIndex = state.pages[i].fileIndex;
+      break;
+    }
+  }
+
+  const items = dom.pdfList.querySelectorAll('.pdf-list-item');
+  items.forEach((el, i) => {
+    el.classList.toggle('active', i === activeIndex);
+  });
 }
 
 export function setupSelectionEvents() {
@@ -231,14 +270,14 @@ export async function exportSelectionsToZip() {
 export async function buildSelectionsFromOverlays() {
   state.extractedSelections = [];
 
-  for (const [idx, overlay] of state.overlays.entries()) {
+  const tasks = state.overlays.map(async (overlay, idx) => {
     const page = state.pages.find((p) => p.wrapper === overlay.wrapper);
-    if (!page) continue;
+    if (!page) return null;
 
     const { scaleX, scaleY } = getCanvasScale(page);
     const w = overlay.el.offsetWidth;
     const h = overlay.el.offsetHeight;
-    if (w <= 0 || h <= 0) continue;
+    if (w <= 0 || h <= 0) return null;
 
     const out = document.createElement('canvas');
     out.width = Math.max(1, Math.round(w * scaleX));
@@ -257,7 +296,7 @@ export async function buildSelectionsFromOverlays() {
     );
 
     const compressedPng = await getCompressedPngBytes(out);
-    state.extractedSelections.push({
+    return {
       id: `sel_${idx}`,
       name: `画像${idx + 1}`,
       baseName: `画像${idx + 1}`,
@@ -265,9 +304,13 @@ export async function buildSelectionsFromOverlays() {
       url: bytesToDataUrl(compressedPng),
       width: out.width,
       height: out.height,
-      variantNo: null
-    });
-  }
+      variantNo: null,
+      fileIndex: page.fileIndex
+    };
+  });
+
+  state.extractedSelections = (await Promise.all(tasks)).filter(Boolean);
+
 
   state.availableSelectionIds = new Set(state.extractedSelections.map((selection) => selection.id));
 }

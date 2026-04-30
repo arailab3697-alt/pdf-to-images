@@ -35,8 +35,10 @@ async function saveBlob(blob, suggestedName, mime, description) {
 }
 
 dom.fileInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  await loadPdfFile(file);
+  const files = Array.from(e.target.files);
+  if (files.length > 0) {
+    await loadPdfFile(files);
+  }
 });
 
 dom.fileInput.addEventListener('click', () => {
