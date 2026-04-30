@@ -16,12 +16,12 @@ export const state = {
   start: null,
   current: null,
   activeWrapper: null,
-  busyCount: 0,
+  busyCount: 0
+  ,
   overlaySeq: 0,
   speculativeCompressionQueue: [],
   speculativeCompressionRunning: false,
   speculativeCompressionHandle: null,
-  speculativeCompressionCooldownMs: 700,
   overlayCompressionCache: new Map(),
   overlayMeta: new Map()
 };
