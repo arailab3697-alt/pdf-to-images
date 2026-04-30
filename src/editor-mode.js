@@ -230,10 +230,22 @@ function scrollToPage(delta) {
 }
 
 export function setupEditorEvents() {
-  dom.zoomRange.addEventListener('input', applyZoom);
-  dom.addPageBtn.addEventListener('click', () => createDummyPage());
-  dom.prevPageBtn.addEventListener('click', () => scrollToPage(-1));
-  dom.nextPageBtn.addEventListener('click', () => scrollToPage(1));
+  const onZoomInput = () => applyZoom();
+  const onAddPageClick = () => createDummyPage();
+  const onPrevPageClick = () => scrollToPage(-1);
+  const onNextPageClick = () => scrollToPage(1);
+
+  dom.zoomRange.addEventListener('input', onZoomInput);
+  dom.addPageBtn.addEventListener('click', onAddPageClick);
+  dom.prevPageBtn.addEventListener('click', onPrevPageClick);
+  dom.nextPageBtn.addEventListener('click', onNextPageClick);
+
+  return () => {
+    dom.zoomRange.removeEventListener('input', onZoomInput);
+    dom.addPageBtn.removeEventListener('click', onAddPageClick);
+    dom.prevPageBtn.removeEventListener('click', onPrevPageClick);
+    dom.nextPageBtn.removeEventListener('click', onNextPageClick);
+  };
 }
 
 export async function exportEditedPdf() {
