@@ -17,10 +17,23 @@ export const state = {
   current: null,
   activeWrapper: null,
   busyCount: 0
+  ,
+  overlaySeq: 0,
+  speculativeCompressionQueue: [],
+  speculativeCompressionRunning: false,
+  speculativeCompressionHandle: null,
+  overlayCompressionCache: new Map(),
+  overlayMeta: new Map()
 };
 
 export function resetSelectionState() {
   state.overlays = [];
+  state.overlaySeq = 0;
+  state.speculativeCompressionQueue = [];
+  state.speculativeCompressionRunning = false;
+  state.speculativeCompressionHandle = null;
+  state.overlayCompressionCache = new Map();
+  state.overlayMeta = new Map();
   state.mode = 'draw';
   state.selectedOverlay = null;
   state.drawing = false;
