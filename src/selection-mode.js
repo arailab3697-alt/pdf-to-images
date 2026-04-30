@@ -142,7 +142,8 @@ export async function loadPdfFile(files) {
     }
   }
 
-  // Setup scroll listener to update active PDF
+  // Setup scroll listener to update active PDF (avoid duplicate registration)
+  dom.viewer.removeEventListener('scroll', updateActivePdf);
   dom.viewer.addEventListener('scroll', updateActivePdf);
 
   setSelectModeUI();
@@ -168,7 +169,7 @@ function updateActivePdf() {
 }
 
 export function setupSelectionEvents() {
-  dom.viewer.addEventListener('contextmenu', (e) => {
+  const onContextMenu = (e) => {
     e.preventDefault();
     for (const overlay of state.overlays) {
       const rect = overlay.el.getBoundingClientRect();
@@ -177,9 +178,9 @@ export function setupSelectionEvents() {
         return;
       }
     }
-  });
+  };
 
-  dom.viewer.addEventListener('mousedown', (e) => {
+  const onMouseDown = (e) => {
     if (state.mode !== 'draw' || e.button !== 0) return;
 
     for (const page of state.pages) {
@@ -192,9 +193,9 @@ export function setupSelectionEvents() {
         break;
       }
     }
-  });
+  };
 
-  window.addEventListener('mousemove', (e) => {
+  const onMouseMove = (e) => {
     if (!state.drawing || !state.current) return;
 
     const rect = state.activeWrapper.getBoundingClientRect();
@@ -206,9 +207,9 @@ export function setupSelectionEvents() {
     state.current.style.height = `${Math.abs(dy)}px`;
     state.current.style.left = `${dx < 0 ? pos.x : state.start.x}px`;
     state.current.style.top = `${dy < 0 ? pos.y : state.start.y}px`;
-  });
+  };
 
-  window.addEventListener('mouseup', (e) => {
+  const onMouseUp = (e) => {
     if (state.drawing && state.current) {
       const rect = state.activeWrapper.getBoundingClientRect();
       const end = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -223,16 +224,30 @@ export function setupSelectionEvents() {
 
     state.drawing = false;
     state.current = null;
-  });
+  };
 
-  window.addEventListener('keydown', (e) => {
+  const onKeyDown = (e) => {
     if (e.key === 'Delete' && state.mode === 'edit' && state.selectedOverlay) {
       state.selectedOverlay.el.remove();
       state.overlays = state.overlays.filter((overlay) => overlay !== state.selectedOverlay);
       state.selectedOverlay = null;
       state.mode = 'draw';
     }
-  });
+  };
+
+  dom.viewer.addEventListener('contextmenu', onContextMenu);
+  dom.viewer.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('keydown', onKeyDown);
+
+  return () => {
+    dom.viewer.removeEventListener('contextmenu', onContextMenu);
+    dom.viewer.removeEventListener('mousedown', onMouseDown);
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('keydown', onKeyDown);
+  };
 }
 
 export async function exportSelectionsToZip() {
