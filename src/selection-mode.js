@@ -11,6 +11,144 @@ export function getCanvasScale(page) {
   };
 }
 
+function findOverlayByElement(el) {
+  return state.overlays.find((overlay) => overlay.el === el);
+}
+
+function touchOverlay(overlay) {
+  if (!overlay) return;
+  overlay.version += 1;
+
+  const prev = state.overlayMeta.get(overlay.id) || {};
+  state.overlayMeta.set(overlay.id, {
+    ...prev,
+    lastTouchedAt: Date.now(),
+    version: overlay.version,
+    status: 'idle'
+  });
+
+  state.overlayCompressionCache.delete(overlay.id);
+  enqueueSpeculativeCompression(overlay.id);
+}
+
+function enqueueSpeculativeCompression(overlayId) {
+  if (!overlayId) return;
+  if (!state.speculativeCompressionQueue.includes(overlayId)) {
+    state.speculativeCompressionQueue.push(overlayId);
+  }
+  scheduleSpeculativeCompression();
+}
+
+function scheduleSpeculativeCompression() {
+  if (state.speculativeCompressionRunning || state.speculativeCompressionHandle) return;
+
+  const runner = async () => {
+    state.speculativeCompressionHandle = null;
+    await runSpeculativeCompressionLoop();
+  };
+
+  if (typeof requestIdleCallback === 'function') {
+    state.speculativeCompressionHandle = requestIdleCallback(runner, { timeout: 500 });
+  } else {
+    state.speculativeCompressionHandle = setTimeout(runner, 120);
+  }
+}
+
+async function runSpeculativeCompressionLoop() {
+  if (state.speculativeCompressionRunning) return;
+  state.speculativeCompressionRunning = true;
+
+  try {
+    while (state.speculativeCompressionQueue.length > 0) {
+      const sortedQueue = state.speculativeCompressionQueue
+        .map((id) => ({ id, meta: state.overlayMeta.get(id) }))
+        .filter((item) => item.meta && item.meta.status !== 'running')
+        .sort((a, b) => (a.meta.lastTouchedAt || 0) - (b.meta.lastTouchedAt || 0));
+
+      if (sortedQueue.length === 0) break;
+
+      const targetId = sortedQueue[0].id;
+      state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== targetId);
+      await compressOverlayAndCache(targetId);
+    }
+  } finally {
+    state.speculativeCompressionRunning = false;
+    if (state.speculativeCompressionQueue.length > 0) {
+      scheduleSpeculativeCompression();
+    }
+  }
+}
+
+function removeOverlayArtifacts(overlayId) {
+  state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== overlayId);
+  state.overlayCompressionCache.delete(overlayId);
+  state.overlayMeta.delete(overlayId);
+}
+
+function getOverlayCanvas(overlay) {
+  const page = state.pages.find((p) => p.wrapper === overlay.wrapper);
+  if (!page) return null;
+
+  const { scaleX, scaleY } = getCanvasScale(page);
+  const width = overlay.el.offsetWidth;
+  const height = overlay.el.offsetHeight;
+  if (width <= 0 || height <= 0) return null;
+
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(width * scaleX));
+  out.height = Math.max(1, Math.round(height * scaleY));
+
+  out.getContext('2d').drawImage(
+    page.canvas,
+    overlay.el.offsetLeft * scaleX,
+    overlay.el.offsetTop * scaleY,
+    width * scaleX,
+    height * scaleY,
+    0,
+    0,
+    out.width,
+    out.height
+  );
+
+  return { out, page };
+}
+
+async function compressOverlayAndCache(overlayId) {
+  const overlay = state.overlays.find((item) => item.id === overlayId);
+  const meta = state.overlayMeta.get(overlayId);
+  if (!overlay || !meta) return null;
+
+  state.overlayMeta.set(overlayId, { ...meta, status: 'running' });
+
+  const versionAtStart = overlay.version;
+  const render = getOverlayCanvas(overlay);
+  if (!render) {
+    state.overlayMeta.set(overlayId, { ...meta, status: 'failed' });
+    return null;
+  }
+
+  const compressedPng = await getCompressedPngBytes(render.out);
+
+  const latestOverlay = state.overlays.find((item) => item.id === overlayId);
+  if (!latestOverlay || latestOverlay.version !== versionAtStart) {
+    return null;
+  }
+
+  const cached = {
+    bytes: compressedPng,
+    version: versionAtStart,
+    width: render.out.width,
+    height: render.out.height
+  };
+
+  state.overlayCompressionCache.set(overlayId, cached);
+
+  const latestMeta = state.overlayMeta.get(overlayId) || {};
+  state.overlayMeta.set(overlayId, { ...latestMeta, status: 'done' });
+
+  return cached;
+}
+
 function enableInteract(el) {
   interact(el)
     .draggable({
@@ -21,6 +159,9 @@ function enableInteract(el) {
           const y = (parseFloat(el.style.top) || 0) + event.dy;
           el.style.left = `${x}px`;
           el.style.top = `${y}px`;
+        },
+        end() {
+          touchOverlay(findOverlayByElement(el));
         }
       }
     })
@@ -39,6 +180,9 @@ function enableInteract(el) {
           el.style.top = `${y}px`;
           el.style.width = `${event.rect.width}px`;
           el.style.height = `${event.rect.height}px`;
+        },
+        end() {
+          touchOverlay(findOverlayByElement(el));
         }
       }
     });
@@ -53,8 +197,18 @@ function createOverlay(wrapper, x, y) {
   el.style.height = '0px';
 
   wrapper.appendChild(el);
-  const overlay = { el, wrapper };
+  const overlay = {
+    id: `ovl_${state.overlaySeq++}`,
+    version: 0,
+    el,
+    wrapper
+  };
   state.overlays.push(overlay);
+  state.overlayMeta.set(overlay.id, {
+    lastTouchedAt: Date.now(),
+    version: overlay.version,
+    status: 'idle'
+  });
   enableInteract(el);
   return el;
 }
@@ -102,12 +256,11 @@ export async function loadPdfFile(files) {
 
     state.files.push({ name: file.name, numPages: pdf.numPages, startPageIndex: state.pages.length });
 
-    // Render sidebar item
     const item = document.createElement('div');
     item.className = 'pdf-list-item';
     item.textContent = file.name;
     item.addEventListener('click', () => {
-      const targetPage = state.pages.find(p => p.fileIndex === fIdx);
+      const targetPage = state.pages.find((p) => p.fileIndex === fIdx);
       if (targetPage) targetPage.wrapper.scrollIntoView({ behavior: 'smooth' });
     });
     dom.pdfList.appendChild(item);
@@ -142,7 +295,6 @@ export async function loadPdfFile(files) {
     }
   }
 
-  // Setup scroll listener to update active PDF (avoid duplicate registration)
   dom.viewer.removeEventListener('scroll', updateActivePdf);
   dom.viewer.addEventListener('scroll', updateActivePdf);
 
@@ -150,7 +302,7 @@ export async function loadPdfFile(files) {
 }
 
 function updateActivePdf() {
-  const rects = state.pages.map(p => p.wrapper.getBoundingClientRect());
+  const rects = state.pages.map((p) => p.wrapper.getBoundingClientRect());
   const viewerRect = dom.viewer.getBoundingClientRect();
   const midPoint = viewerRect.top + viewerRect.height / 2;
 
@@ -215,10 +367,14 @@ export function setupSelectionEvents() {
       const end = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       const dx = Math.abs(end.x - state.start.x);
       const dy = Math.abs(end.y - state.start.y);
+      const currentOverlay = findOverlayByElement(state.current);
 
       if (dx + dy < MIN_DIST) {
         state.current.remove();
         state.overlays = state.overlays.filter((overlay) => overlay.el !== state.current);
+        if (currentOverlay) removeOverlayArtifacts(currentOverlay.id);
+      } else {
+        touchOverlay(currentOverlay);
       }
     }
 
@@ -228,10 +384,12 @@ export function setupSelectionEvents() {
 
   const onKeyDown = (e) => {
     if (e.key === 'Delete' && state.mode === 'edit' && state.selectedOverlay) {
+      const deletingOverlayId = state.selectedOverlay.id;
       state.selectedOverlay.el.remove();
       state.overlays = state.overlays.filter((overlay) => overlay !== state.selectedOverlay);
       state.selectedOverlay = null;
       state.mode = 'draw';
+      removeOverlayArtifacts(deletingOverlayId);
     }
   };
 
@@ -254,29 +412,19 @@ export async function exportSelectionsToZip() {
   const zip = new JSZip();
 
   for (const [i, overlay] of state.overlays.entries()) {
-    const { el, wrapper } = overlay;
-    const page = state.pages.find((p) => p.wrapper === wrapper);
-    if (!page) continue;
+    const cache = state.overlayCompressionCache.get(overlay.id);
+    let bytes = null;
 
-    const { scaleX, scaleY } = getCanvasScale(page);
-    const out = document.createElement('canvas');
-    out.width = Math.max(1, Math.round(el.offsetWidth * scaleX));
-    out.height = Math.max(1, Math.round(el.offsetHeight * scaleY));
+    if (cache && cache.version === overlay.version) {
+      bytes = cache.bytes;
+    } else {
+      const result = await compressOverlayAndCache(overlay.id);
+      bytes = result?.bytes || null;
+    }
 
-    out.getContext('2d').drawImage(
-      page.canvas,
-      el.offsetLeft * scaleX,
-      el.offsetTop * scaleY,
-      el.offsetWidth * scaleX,
-      el.offsetHeight * scaleY,
-      0,
-      0,
-      out.width,
-      out.height
-    );
-
-    const compressedPng = await getCompressedPngBytes(out);
-    zip.file(`selection_${i}.png`, compressedPng);
+    if (bytes) {
+      zip.file(`selection_${i}.png`, bytes);
+    }
   }
 
   return zip.generateAsync({ type: 'blob' });
@@ -289,43 +437,36 @@ export async function buildSelectionsFromOverlays() {
     const page = state.pages.find((p) => p.wrapper === overlay.wrapper);
     if (!page) return null;
 
-    const { scaleX, scaleY } = getCanvasScale(page);
-    const w = overlay.el.offsetWidth;
-    const h = overlay.el.offsetHeight;
-    if (w <= 0 || h <= 0) return null;
+    const cache = state.overlayCompressionCache.get(overlay.id);
+    let compressedPng;
+    let width;
+    let height;
 
-    const out = document.createElement('canvas');
-    out.width = Math.max(1, Math.round(w * scaleX));
-    out.height = Math.max(1, Math.round(h * scaleY));
+    if (cache && cache.version === overlay.version) {
+      compressedPng = cache.bytes;
+      width = cache.width;
+      height = cache.height;
+    } else {
+      const result = await compressOverlayAndCache(overlay.id);
+      if (!result) return null;
+      compressedPng = result.bytes;
+      width = result.width;
+      height = result.height;
+    }
 
-    out.getContext('2d').drawImage(
-      page.canvas,
-      overlay.el.offsetLeft * scaleX,
-      overlay.el.offsetTop * scaleY,
-      w * scaleX,
-      h * scaleY,
-      0,
-      0,
-      out.width,
-      out.height
-    );
-
-    const compressedPng = await getCompressedPngBytes(out);
     return {
       id: `sel_${idx}`,
       name: `画像${idx + 1}`,
       baseName: `画像${idx + 1}`,
       bytes: compressedPng,
       url: bytesToDataUrl(compressedPng),
-      width: out.width,
-      height: out.height,
+      width,
+      height,
       variantNo: null,
       fileIndex: page.fileIndex
     };
   });
 
   state.extractedSelections = (await Promise.all(tasks)).filter(Boolean);
-
-
   state.availableSelectionIds = new Set(state.extractedSelections.map((selection) => selection.id));
 }
