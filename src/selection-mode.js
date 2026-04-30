@@ -18,13 +18,11 @@ function findOverlayByElement(el) {
 function touchOverlay(overlay) {
   if (!overlay) return;
   overlay.version += 1;
-  const now = Date.now();
 
   const prev = state.overlayMeta.get(overlay.id) || {};
   state.overlayMeta.set(overlay.id, {
     ...prev,
-    lastTouchedAt: now,
-    enqueueAfter: now + state.speculativeCompressionCooldownMs,
+    lastTouchedAt: Date.now(),
     version: overlay.version,
     status: 'idle'
   });
@@ -61,28 +59,22 @@ async function runSpeculativeCompressionLoop() {
   state.speculativeCompressionRunning = true;
 
   try {
-    const now = Date.now();
-    const sortedQueue = state.speculativeCompressionQueue
-      .map((id) => ({ id, meta: state.overlayMeta.get(id) }))
-      .filter((item) => item.meta && item.meta.status !== 'running')
-      .filter((item) => (item.meta.enqueueAfter || 0) <= now)
-      .sort((a, b) => (a.meta.lastTouchedAt || 0) - (b.meta.lastTouchedAt || 0));
+    while (state.speculativeCompressionQueue.length > 0) {
+      const sortedQueue = state.speculativeCompressionQueue
+        .map((id) => ({ id, meta: state.overlayMeta.get(id) }))
+        .filter((item) => item.meta && item.meta.status !== 'running')
+        .sort((a, b) => (a.meta.lastTouchedAt || 0) - (b.meta.lastTouchedAt || 0));
 
-    if (sortedQueue.length === 0) return;
+      if (sortedQueue.length === 0) break;
 
-    const targetId = sortedQueue[0].id;
-    state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== targetId);
-    await compressOverlayAndCache(targetId);
+      const targetId = sortedQueue[0].id;
+      state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== targetId);
+      await compressOverlayAndCache(targetId);
+    }
   } finally {
     state.speculativeCompressionRunning = false;
     if (state.speculativeCompressionQueue.length > 0) {
-      state.speculativeCompressionHandle = setTimeout(
-        () => {
-          state.speculativeCompressionHandle = null;
-          scheduleSpeculativeCompression();
-        },
-        Math.min(250, state.speculativeCompressionCooldownMs)
-      );
+      scheduleSpeculativeCompression();
     }
   }
 }
@@ -125,10 +117,6 @@ async function compressOverlayAndCache(overlayId) {
   const overlay = state.overlays.find((item) => item.id === overlayId);
   const meta = state.overlayMeta.get(overlayId);
   if (!overlay || !meta) return null;
-  const cache = state.overlayCompressionCache.get(overlayId);
-  if (cache && cache.version === overlay.version) {
-    return cache;
-  }
 
   state.overlayMeta.set(overlayId, { ...meta, status: 'running' });
 
