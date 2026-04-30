@@ -1,16 +1,43 @@
 import { OXIPNG_MAX_LEVEL, PNGQUANT_MAX_COLORS, PNGQUANT_SPEED } from './constants.js';
-import { optimise } from '@jsquash/oxipng';
 
-let pngQuantizer = null;
+let compressionWorker = null;
+let workerRequestSeq = 0;
+const workerRequests = new Map();
 
-async function getPngQuantizer() {
-  if (pngQuantizer) return pngQuantizer;
+function normalizeWorkerBytes(output) {
+  if (output instanceof Uint8Array) return output;
+  if (output instanceof ArrayBuffer) return new Uint8Array(output);
+  if (ArrayBuffer.isView(output)) {
+    return new Uint8Array(output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength));
+  }
+  throw new Error('Workerから不正な出力形式が返されました');
+}
 
-  const mod = await import('https://esm.sh/@fe-daily/libimagequant-wasm@0.1.1');
-  const LibImageQuant = mod.default;
+function getCompressionWorker() {
+  if (compressionWorker) return compressionWorker;
 
-  pngQuantizer = new LibImageQuant();
-  return pngQuantizer;
+  compressionWorker = new Worker(new URL('./workers/compression-worker.js', import.meta.url), { type: 'module' });
+  compressionWorker.addEventListener('message', (event) => {
+    const { id, ok, output, error } = event.data;
+    const pending = workerRequests.get(id);
+    if (!pending) return;
+    workerRequests.delete(id);
+
+    if (ok) {
+      pending.resolve(normalizeWorkerBytes(output));
+    } else {
+      pending.reject(new Error(error));
+    }
+  });
+
+  compressionWorker.addEventListener('error', (error) => {
+    for (const { reject } of workerRequests.values()) {
+      reject(error);
+    }
+    workerRequests.clear();
+  });
+
+  return compressionWorker;
 }
 
 function canvasToPngBlob(canvas) {
@@ -25,37 +52,38 @@ function canvasToPngBlob(canvas) {
   });
 }
 
+function postWorkerCompression(payload) {
+  const worker = getCompressionWorker();
+  const id = `cmp_${workerRequestSeq++}`;
+  const request = new Promise((resolve, reject) => {
+    workerRequests.set(id, { resolve, reject });
+  });
+
+  worker.postMessage({ id, payload }, [payload.rgbaBytes]);
+  return request;
+}
+
 export async function getCompressedPngBytes(canvas) {
   const pngBlob = await canvasToPngBlob(canvas);
-  let bytes = new Uint8Array(await pngBlob.arrayBuffer());
+  const [pngBuffer, imageData] = await Promise.all([
+    pngBlob.arrayBuffer(),
+    Promise.resolve(canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height))
+  ]);
+  const sourcePngBytes = new Uint8Array(pngBuffer);
 
-  // --- pngquant（任意）
   try {
-    const quantizer = await getPngQuantizer();
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-    const result = await quantizer.quantizeImageData(imageData, {
+    return await postWorkerCompression({
+      pngBytes: pngBuffer,
+      rgbaBytes: imageData.data.buffer,
+      width: canvas.width,
+      height: canvas.height,
       maxColors: PNGQUANT_MAX_COLORS,
       speed: PNGQUANT_SPEED,
+      oxipngLevel: OXIPNG_MAX_LEVEL
     });
-
-    bytes = result.pngBytes;
-  } catch (err) {
-    console.warn(
-      `pngquant(最大${PNGQUANT_MAX_COLORS}色)圧縮に失敗 → 元PNGを使用`,
-      err
-    );
-  }
-
-  // --- oxipng（jsquash）
-  try {
-    return await optimise(bytes, {
-      level: OXIPNG_MAX_LEVEL
-    });
-  } catch (err) {
-    console.warn('oxipng圧縮に失敗 → pngquant結果を使用', err);
-    return bytes;
+  } catch (error) {
+    console.warn('Worker圧縮に失敗 → 元PNGを使用', error);
+    return sourcePngBytes;
   }
 }
 
