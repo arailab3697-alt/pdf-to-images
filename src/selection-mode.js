@@ -33,14 +33,18 @@ function touchOverlay(overlay) {
 
 function enqueueSpeculativeCompression(overlayId) {
   if (!overlayId) return;
-  if (!state.speculativeCompressionQueue.includes(overlayId)) {
-    state.speculativeCompressionQueue.push(overlayId);
+  const exists = state.speculativeCompressionQueues.some((queue) => queue.includes(overlayId));
+  if (!exists) {
+    const lane = state.speculativeCompressionNextLane;
+    state.speculativeCompressionQueues[lane].push(overlayId);
+    state.speculativeCompressionNextLane =
+      (state.speculativeCompressionNextLane + 1) % state.speculativeCompressionQueues.length;
   }
   scheduleSpeculativeCompression();
 }
 
 function scheduleSpeculativeCompression() {
-  if (state.speculativeCompressionRunning || state.speculativeCompressionHandle) return;
+  if (state.speculativeCompressionHandle) return;
 
   const runner = async () => {
     state.speculativeCompressionHandle = null;
@@ -55,32 +59,57 @@ function scheduleSpeculativeCompression() {
 }
 
 async function runSpeculativeCompressionLoop() {
-  if (state.speculativeCompressionRunning) return;
-  state.speculativeCompressionRunning = true;
+  const MAX_IN_FLIGHT = state.speculativeCompressionQueues.length;
 
-  try {
-    while (state.speculativeCompressionQueue.length > 0) {
-      const sortedQueue = state.speculativeCompressionQueue
-        .map((id) => ({ id, meta: state.overlayMeta.get(id) }))
-        .filter((item) => item.meta && item.meta.status !== 'running')
-        .sort((a, b) => (a.meta.lastTouchedAt || 0) - (b.meta.lastTouchedAt || 0));
+  while (state.speculativeCompressionInFlight < MAX_IN_FLIGHT) {
+    const targetId = dequeueNextSpeculativeCompression();
+    if (!targetId) break;
 
-      if (sortedQueue.length === 0) break;
+    state.speculativeCompressionInFlight += 1;
+    compressOverlayAndCache(targetId)
+      .catch(() => null)
+      .finally(() => {
+        state.speculativeCompressionInFlight = Math.max(0, state.speculativeCompressionInFlight - 1);
+        if (hasPendingSpeculativeCompression()) {
+          scheduleSpeculativeCompression();
+        }
+      });
+  }
 
-      const targetId = sortedQueue[0].id;
-      state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== targetId);
-      await compressOverlayAndCache(targetId);
-    }
-  } finally {
-    state.speculativeCompressionRunning = false;
-    if (state.speculativeCompressionQueue.length > 0) {
-      scheduleSpeculativeCompression();
-    }
+  if (hasPendingSpeculativeCompression() && state.speculativeCompressionInFlight < MAX_IN_FLIGHT) {
+    scheduleSpeculativeCompression();
   }
 }
 
+function hasPendingSpeculativeCompression() {
+  return state.speculativeCompressionQueues.some((queue) => queue.length > 0);
+}
+
+function dequeueNextSpeculativeCompression() {
+  const laneCount = state.speculativeCompressionQueues.length;
+  for (let offset = 0; offset < laneCount; offset += 1) {
+    const lane = (state.speculativeCompressionDequeueLane + offset) % laneCount;
+    const queue = state.speculativeCompressionQueues[lane];
+    const candidates = queue
+      .map((id, index) => ({ id, index, meta: state.overlayMeta.get(id) }))
+      .filter((item) => item.meta && item.meta.status !== 'running')
+      .sort((a, b) => (a.meta.lastTouchedAt || 0) - (b.meta.lastTouchedAt || 0));
+
+    if (candidates.length === 0) continue;
+
+    const [{ id, index }] = candidates;
+    queue.splice(index, 1);
+    state.speculativeCompressionDequeueLane = (lane + 1) % laneCount;
+    return id;
+  }
+
+  return null;
+}
+
 function removeOverlayArtifacts(overlayId) {
-  state.speculativeCompressionQueue = state.speculativeCompressionQueue.filter((id) => id !== overlayId);
+  state.speculativeCompressionQueues = state.speculativeCompressionQueues.map((queue) =>
+    queue.filter((id) => id !== overlayId)
+  );
   state.overlayCompressionCache.delete(overlayId);
   state.overlayMeta.delete(overlayId);
 }
