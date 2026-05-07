@@ -1,4 +1,5 @@
 import { optimise } from '@jsquash/oxipng';
+import { compressPngPayload } from './compression-core.js';
 
 let pngQuantizer = null;
 
@@ -11,22 +12,10 @@ async function getPngQuantizer() {
 }
 
 async function compressInWorker({ pngBytes, rgbaBytes, width, height, maxColors, speed, oxipngLevel }) {
-  let bytes = new Uint8Array(pngBytes);
-
-  try {
-    const quantizer = await getPngQuantizer();
-    const imageData = new ImageData(new Uint8ClampedArray(rgbaBytes), width, height);
-    const result = await quantizer.quantizeImageData(imageData, { maxColors, speed });
-    bytes = result.pngBytes;
-  } catch (error) {
-    // Quantize failure is non-fatal. We fallback to source PNG.
-  }
-
-  try {
-    return await optimise(bytes, { level: oxipngLevel });
-  } catch (error) {
-    return bytes;
-  }
+  return compressPngPayload(
+    { pngBytes, rgbaBytes, width, height, maxColors, speed, oxipngLevel },
+    { getPngQuantizer, optimise }
+  );
 }
 
 self.onmessage = async (event) => {
@@ -34,7 +23,7 @@ self.onmessage = async (event) => {
 
   try {
     const output = await compressInWorker(payload);
-    self.postMessage({ id, ok: true, output }, [output]);
+    self.postMessage({ id, ok: true, output });
   } catch (error) {
     self.postMessage({
       id,

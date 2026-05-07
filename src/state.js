@@ -19,8 +19,10 @@ export const state = {
   busyCount: 0
   ,
   overlaySeq: 0,
-  speculativeCompressionQueue: [],
-  speculativeCompressionRunning: false,
+  speculativeCompressionQueues: [[], []],
+  speculativeCompressionInFlight: 0,
+  speculativeCompressionNextLane: 0,
+  speculativeCompressionDequeueLane: 0,
   speculativeCompressionHandle: null,
   overlayCompressionCache: new Map(),
   overlayMeta: new Map()
@@ -29,8 +31,10 @@ export const state = {
 export function resetSelectionState() {
   state.overlays = [];
   state.overlaySeq = 0;
-  state.speculativeCompressionQueue = [];
-  state.speculativeCompressionRunning = false;
+  state.speculativeCompressionQueues = [[], []];
+  state.speculativeCompressionInFlight = 0;
+  state.speculativeCompressionNextLane = 0;
+  state.speculativeCompressionDequeueLane = 0;
   state.speculativeCompressionHandle = null;
   state.overlayCompressionCache = new Map();
   state.overlayMeta = new Map();
