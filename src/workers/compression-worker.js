@@ -34,7 +34,7 @@ self.onmessage = async (event) => {
 
   try {
     const output = await compressInWorker(payload);
-    self.postMessage({ id, ok: true, output }, [output.buffer]);
+    self.postMessage({ id, ok: true, output }, [output]);
   } catch (error) {
     self.postMessage({
       id,
