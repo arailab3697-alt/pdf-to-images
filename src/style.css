@@ -293,7 +293,7 @@ canvas {
   fill: none;
   stroke: red;
   stroke-width: 2px;
-  stroke-linecap: butt;
+  stroke-linecap: square;
   stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
 }
