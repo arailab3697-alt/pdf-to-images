@@ -1,6 +1,75 @@
-import { A4_HEIGHT_PT, A4_WIDTH_PT } from './constants.js';
+import { A4_HEIGHT_PT, A4_WIDTH_PT, OUTLINE_COLOR, OUTLINE_WIDTH_PT } from './constants.js';
 import { dom } from './dom.js';
 import { state } from './state.js';
+import { computeUnionOutlineSegments, outlineSegmentsToSvgPath } from './outline.js';
+
+function getPlacedRect(item) {
+  return {
+    x: parseFloat(item.el.style.left) || 0,
+    y: parseFloat(item.el.style.top) || 0,
+    width: parseFloat(item.el.style.width) || 0,
+    height: parseFloat(item.el.style.height) || 0
+  };
+}
+
+function getOutlineRectsForPage(pageNo) {
+  return state.placedOverlays
+    .filter((item) => item.el.isConnected && item.pageNo === pageNo && !item.outlineExcluded)
+    .map(getPlacedRect);
+}
+
+function renderPageOutline(pageInfo) {
+  const segments = computeUnionOutlineSegments(getOutlineRectsForPage(pageInfo.pageNo));
+  const path = pageInfo.outlinePath;
+  path.setAttribute('d', outlineSegmentsToSvgPath(segments));
+}
+
+function renderAllOutlines() {
+  state.editorPages.forEach(renderPageOutline);
+}
+
+function scheduleOutlineRender() {
+  if (state.outlineRenderHandle) return;
+
+  state.outlineRenderHandle = requestAnimationFrame(() => {
+    state.outlineRenderHandle = null;
+    renderAllOutlines();
+  });
+}
+
+function toggleOutlineParticipation(item) {
+  item.outlineExcluded = !item.outlineExcluded;
+  item.el.classList.toggle('outline-excluded', item.outlineExcluded);
+  item.el.title = item.outlineExcluded
+    ? '右クリックで画像の縁取り対象に戻します。ダブルクリックで削除します。'
+    : '右クリックで画像の縁取り対象から外します。ダブルクリックで削除します。';
+  renderAllOutlines();
+}
+
+function getOutlineSegmentsForPdfPage(pageInfo) {
+  const scaleX = A4_WIDTH_PT / pageInfo.layer.offsetWidth;
+  const scaleY = A4_HEIGHT_PT / pageInfo.layer.offsetHeight;
+  const rects = getOutlineRectsForPage(pageInfo.pageNo).map((rect) => ({
+    x: rect.x * scaleX,
+    y: rect.y * scaleY,
+    width: rect.width * scaleX,
+    height: rect.height * scaleY
+  }));
+
+  return computeUnionOutlineSegments(rects);
+}
+
+function drawPdfOutlineSegments(page, segments) {
+  const color = PDFLib.rgb(OUTLINE_COLOR.r, OUTLINE_COLOR.g, OUTLINE_COLOR.b);
+  segments.forEach((segment) => {
+    page.drawLine({
+      start: { x: segment.x1, y: A4_HEIGHT_PT - segment.y1 },
+      end: { x: segment.x2, y: A4_HEIGHT_PT - segment.y2 },
+      thickness: OUTLINE_WIDTH_PT,
+      color
+    });
+  });
+}
 
 function enablePlacedInteract(el) {
   interact(el)
@@ -11,6 +80,7 @@ function enablePlacedInteract(el) {
           const y = (parseFloat(el.style.top) || 0) + event.dy;
           el.style.left = `${x}px`;
           el.style.top = `${y}px`;
+          scheduleOutlineRender();
         }
       }
     })
@@ -29,6 +99,7 @@ function enablePlacedInteract(el) {
           el.style.top = `${y}px`;
           el.style.width = `${event.rect.width}px`;
           el.style.height = `${event.rect.height}px`;
+          scheduleOutlineRender();
         }
       }
     });
@@ -151,7 +222,8 @@ function placeSelectionOnPage(selection, pageNo, x, y) {
 
   enablePlacedInteract(el);
 
-  const item = { id: placedId, el, pageNo, selectionId: selection.id };
+  const item = { id: placedId, el, pageNo, selectionId: selection.id, outlineExcluded: false };
+  el.title = '右クリックで画像の縁取り対象から外します。ダブルクリックで削除します。';
   state.placedOverlays.push(item);
 
   el.addEventListener('pointerdown', () => {
@@ -160,11 +232,17 @@ function placeSelectionOnPage(selection, pageNo, x, y) {
     el.style.zIndex = String(nextZ);
   });
 
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    toggleOutlineParticipation(item);
+  });
+
   el.addEventListener('dblclick', () => {
     el.remove();
     state.placedOverlays = state.placedOverlays.filter((overlay) => overlay !== item);
     state.availableSelectionIds.add(item.selectionId);
     renderSelectionPanel();
+    renderAllOutlines();
   });
 
   return item;
@@ -179,6 +257,15 @@ function createDummyPage() {
 
   const layer = document.createElement('div');
   layer.className = 'page-drop-layer';
+
+  const outlineSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  outlineSvg.classList.add('outline-layer');
+  outlineSvg.setAttribute('viewBox', `0 0 ${A4_WIDTH_PT} ${A4_HEIGHT_PT}`);
+  outlineSvg.setAttribute('preserveAspectRatio', 'none');
+
+  const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  outlinePath.classList.add('outline-path');
+  outlineSvg.appendChild(outlinePath);
   layer.addEventListener('dragover', (e) => e.preventDefault());
   layer.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -194,17 +281,23 @@ function createDummyPage() {
     layer.appendChild(placed.el);
     state.availableSelectionIds.delete(selectionId);
     renderSelectionPanel();
+    renderAllOutlines();
   });
 
   pageEl.appendChild(layer);
+  pageEl.appendChild(outlineSvg);
   dom.dummyPdfInner.appendChild(pageEl);
-  state.editorPages.push({ pageNo, el: pageEl, layer });
+  state.editorPages.push({ pageNo, el: pageEl, layer, outlineSvg, outlinePath });
 }
 
 export function setupInitialEditorPages() {
   dom.dummyPdfInner.innerHTML = '';
   state.editorPages = [];
   state.placedOverlays = [];
+  if (state.outlineRenderHandle) {
+    cancelAnimationFrame(state.outlineRenderHandle);
+    state.outlineRenderHandle = null;
+  }
   createDummyPage();
 }
 
@@ -271,14 +364,13 @@ export async function exportEditedPdf() {
     const selection = state.extractedSelections.find((s) => s.id === item.el.dataset.selectionId);
     if (!selection || !pageInfo) continue;
 
-    const layerRect = pageInfo.layer.getBoundingClientRect();
     const xPx = parseFloat(item.el.style.left) || 0;
     const yPx = parseFloat(item.el.style.top) || 0;
     const wPx = parseFloat(item.el.style.width) || 0;
     const hPx = parseFloat(item.el.style.height) || 0;
 
-    const scaleX = A4_WIDTH_PT / layerRect.width;
-    const scaleY = A4_HEIGHT_PT / layerRect.height;
+    const scaleX = A4_WIDTH_PT / pageInfo.layer.offsetWidth;
+    const scaleY = A4_HEIGHT_PT / pageInfo.layer.offsetHeight;
 
     const xPt = xPx * scaleX;
     const yPt = A4_HEIGHT_PT - (yPx * scaleY) - (hPx * scaleY);
@@ -288,6 +380,11 @@ export async function exportEditedPdf() {
     const image = await pdfDoc.embedPng(selection.bytes);
     page.drawImage(image, { x: xPt, y: yPt, width: wPt, height: hPt });
   }
+
+  state.editorPages.forEach((pageInfo) => {
+    const page = pdfDoc.getPage(pageInfo.pageNo - 1);
+    drawPdfOutlineSegments(page, getOutlineSegmentsForPdfPage(pageInfo));
+  });
 
   return new Blob([await pdfDoc.save()], { type: 'application/pdf' });
 }

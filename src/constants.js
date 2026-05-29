@@ -5,6 +5,8 @@ export const PNGQUANT_SPEED = 1;
 export const PNGQUANT_MAX_COLORS = 16;
 export const A4_WIDTH_PT = 595;
 export const A4_HEIGHT_PT = 842;
+export const OUTLINE_COLOR = { r: 1, g: 0, b: 0 };
+export const OUTLINE_WIDTH_PT = 2;
 
 export const FILE_NAMES = {
   SELECTIONS_ZIP: 'selections.zip',
