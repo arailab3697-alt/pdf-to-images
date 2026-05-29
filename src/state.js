@@ -16,6 +16,7 @@ export const state = {
   start: null,
   current: null,
   activeWrapper: null,
+  outlineRenderHandle: null,
   busyCount: 0
   ,
   overlaySeq: 0,
@@ -44,6 +45,7 @@ export function resetSelectionState() {
   state.start = null;
   state.current = null;
   state.activeWrapper = null;
+  state.outlineRenderHandle = null;
 }
 
 export function resetEditorState() {
@@ -54,6 +56,7 @@ export function resetEditorState() {
   state.placedOverlaySeq = 0;
   state.placedOverlayZSeq = 0;
   state.duplicatedSelectionSeq = 0;
+  state.outlineRenderHandle = null;
 }
 
 export function resetDocumentState() {
