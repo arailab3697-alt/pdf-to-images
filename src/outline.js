@@ -9,7 +9,9 @@ function uniqueSorted(values) {
 }
 
 function rectContainsCell(rect, x1, x2, y1, y2) {
-  return x1 >= rect.x && x2 <= rect.x + rect.width && y1 >= rect.y && y2 <= rect.y + rect.height;
+  // 不安定化回避
+  const epsilon = 0.0001;
+  return x1 >= rect.x - epsilon && x2 <= rect.x + rect.width + epsilon && y1 >= rect.y - epsilon && y2 <= rect.y + rect.height + epsilon;
 }
 
 function keyForCell(row, col) {
