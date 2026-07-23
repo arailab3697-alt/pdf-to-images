@@ -3,6 +3,8 @@ import { dom } from './dom.js';
 import { state } from './state.js';
 import { computeUnionOutlineSegments, outlineSegmentsToSvgPath } from './outline.js';
 
+const ZOOM_STEP_PERCENT = 10;
+
 function getPlacedRect(item) {
   return {
     x: parseFloat(item.el.style.left) || 0,
@@ -304,6 +306,27 @@ export function setupInitialEditorPages() {
 export function applyZoom() {
   const zoom = Number(dom.zoomRange.value) / 100;
   dom.dummyPdfInner.style.transform = `scale(${zoom})`;
+  dom.dummyPdfInner.style.width = `${A4_WIDTH_PT}px`;
+}
+
+function clampZoomValue(value) {
+  const min = Number(dom.zoomRange.min);
+  const max = Number(dom.zoomRange.max);
+  return Math.max(min, Math.min(max, value));
+}
+
+function zoomPdfViewportByWheel(event) {
+  if (!event.ctrlKey) return;
+
+  event.preventDefault();
+
+  const currentZoom = Number(dom.zoomRange.value);
+  const direction = event.deltaY > 0 ? -1 : 1;
+  const nextZoom = clampZoomValue(currentZoom + direction * ZOOM_STEP_PERCENT);
+  if (nextZoom === currentZoom) return;
+
+  dom.zoomRange.value = String(nextZoom);
+  applyZoom();
 }
 
 function scrollToPage(delta) {
@@ -324,17 +347,20 @@ function scrollToPage(delta) {
 
 export function setupEditorEvents() {
   const onZoomInput = () => applyZoom();
+  const onPdfViewportWheel = (event) => zoomPdfViewportByWheel(event);
   const onAddPageClick = () => createDummyPage();
   const onPrevPageClick = () => scrollToPage(-1);
   const onNextPageClick = () => scrollToPage(1);
 
   dom.zoomRange.addEventListener('input', onZoomInput);
+  dom.dummyPdfViewport.addEventListener('wheel', onPdfViewportWheel, { passive: false });
   dom.addPageBtn.addEventListener('click', onAddPageClick);
   dom.prevPageBtn.addEventListener('click', onPrevPageClick);
   dom.nextPageBtn.addEventListener('click', onNextPageClick);
 
   return () => {
     dom.zoomRange.removeEventListener('input', onZoomInput);
+    dom.dummyPdfViewport.removeEventListener('wheel', onPdfViewportWheel);
     dom.addPageBtn.removeEventListener('click', onAddPageClick);
     dom.prevPageBtn.removeEventListener('click', onPrevPageClick);
     dom.nextPageBtn.removeEventListener('click', onNextPageClick);
