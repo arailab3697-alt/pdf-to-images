@@ -198,6 +198,7 @@ canvas {
 }
 
 #dummyPdfInner {
+  margin: 0 auto;
   transform-origin: top left;
 }
 
