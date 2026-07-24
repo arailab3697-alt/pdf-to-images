@@ -325,18 +325,8 @@ function zoomPdfViewportByWheel(event) {
   const nextZoom = clampZoomValue(currentZoom + direction * ZOOM_STEP_PERCENT);
   if (nextZoom === currentZoom) return;
 
-  const currentScale = currentZoom / 100;
-  const nextScale = nextZoom / 100;
-  const innerRect = dom.dummyPdfInner.getBoundingClientRect();
-  const cursorPdfX = (event.clientX - innerRect.left) / currentScale;
-  const cursorPdfY = (event.clientY - innerRect.top) / currentScale;
-
   dom.zoomRange.value = String(nextZoom);
   applyZoom();
-
-  const zoomedInnerRect = dom.dummyPdfInner.getBoundingClientRect();
-  dom.dummyPdfViewport.scrollLeft += zoomedInnerRect.left + cursorPdfX * nextScale - event.clientX;
-  dom.dummyPdfViewport.scrollTop += zoomedInnerRect.top + cursorPdfY * nextScale - event.clientY;
 }
 
 function scrollToPage(delta) {

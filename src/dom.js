@@ -11,6 +11,7 @@ export const dom = {
   selectionPanel: document.getElementById('selectionPanel'),
   pdfList: document.getElementById('pdfList'),
   dummyPdfInner: document.getElementById('dummyPdfInner'),
+  dummyPages: document.getElementsByClassName('dummy-page'),
   dummyPdfViewport: document.getElementById('dummyPdfViewport'),
   zoomRange: document.getElementById('zoomRange'),
   addPageBtn: document.getElementById('addPageBtn'),

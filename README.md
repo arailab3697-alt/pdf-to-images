@@ -90,3 +90,4 @@ npm run build
 ## 設計ドキュメント
 
 - [並列処理設計（画像圧縮パイプライン）](docs/parallel-processing-design.md)
+- [現行機能を固めるための安定化アーキテクチャ実装案](docs/stabilization-architecture-proposal.md)
