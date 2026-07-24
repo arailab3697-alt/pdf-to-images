@@ -305,10 +305,8 @@ export function setupInitialEditorPages() {
 
 export function applyZoom() {
   const zoom = Number(dom.zoomRange.value) / 100;
-  dom.dummyPages.forEach(elm => {
-    elm.style.transform = `scale(${zoom})`;
-    elm.style.width = `${A4_WIDTH_PT}px`;
-  });
+  dom.dummyPdfInner.style.transform = `scale(${zoom})`;
+  dom.dummyPdfInner.style.width = `${A4_WIDTH_PT}px`;
 }
 
 function clampZoomValue(value) {
