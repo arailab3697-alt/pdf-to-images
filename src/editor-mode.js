@@ -320,13 +320,32 @@ function zoomPdfViewportByWheel(event) {
 
   event.preventDefault();
 
+  const viewport = dom.dummyPdfViewport;
+
   const currentZoom = Number(dom.zoomRange.value);
   const direction = event.deltaY > 0 ? -1 : 1;
   const nextZoom = clampZoomValue(currentZoom + direction * ZOOM_STEP_PERCENT);
   if (nextZoom === currentZoom) return;
 
+  // ズーム前後の倍率
+  const oldScale = currentZoom / 100;
+  const newScale = nextZoom / 100;
+
+  // Viewport内のマウス座標
+  const rect = viewport.getBoundingClientRect();
+  const mouseX = event.clientX - rect.left;
+  const mouseY = event.clientY - rect.top;
+
+  // ズーム前のコンテンツ座標
+  const contentX = (viewport.scrollLeft + mouseX) / oldScale;
+  const contentY = (viewport.scrollTop + mouseY) / oldScale;
+
   dom.zoomRange.value = String(nextZoom);
   applyZoom();
+
+  // 同じコンテンツ座標がマウスの下に来るよう補正
+  viewport.scrollLeft = contentX * newScale - mouseX;
+  viewport.scrollTop  = contentY * newScale - mouseY;
 }
 
 function scrollToPage(delta) {
